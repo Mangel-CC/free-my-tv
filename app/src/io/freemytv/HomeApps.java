@@ -71,6 +71,7 @@ final class HomeApps {
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
         int edge;           // color at the corner of the card (fallback fill of the round icon), 0 = not read yet
+        String link;        // a deep link that opens this title inside the app (null = just launch the app)
         Bitmap icon;        // the app's own launcher icon (square, made for circles); null until loaded or if it has none
     }
 
@@ -353,7 +354,12 @@ final class HomeApps {
         Intent intent;
         switch (it.kind) {
             case APP:
-                intent = launchIntent(a.getPackageManager(), it.pkg);
+                intent = null;
+                if (it.link != null) {   // the title's page, in this very app (no chooser)
+                    Intent view = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.link)).setPackage(it.pkg);
+                    if (view.resolveActivity(a.getPackageManager()) != null) intent = view;
+                }
+                if (intent == null) intent = launchIntent(a.getPackageManager(), it.pkg);
                 if (intent != null) intent.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 break;
             case LIVE_TV:

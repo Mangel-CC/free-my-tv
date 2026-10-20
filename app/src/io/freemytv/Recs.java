@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String ref;             // catalog titles: their IMDb id (for the deep link into the app)
         boolean detailed;
     }
 
@@ -53,7 +54,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -62,7 +63,7 @@ final class Recs {
      * With none of the streaming apps above installed, the titles open in this app instead (it has them all):
      * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
      */
-    private static final String CATCH_ALL_APP = "Nuvio";
+    private static final String CATCH_ALL_APP = "Nuvio Chapters";
 
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -96,7 +97,6 @@ final class Recs {
     private volatile List<Pick> animePicks = new ArrayList<>();
     private volatile long animeAt, animeFailedAt;
     private volatile boolean animeFetching;
-    private volatile int animeOffset;   // first title shown in the Anime tab (moves by 3)
     private static final long ANIME_EVERY = 10 * 60_000L, ANIME_RETRY = 2 * 60_000L;
     private static final java.util.regex.Pattern EPISODE = java.util.regex.Pattern.compile("season=(\\d+)&episode=(\\d+)");
 
@@ -191,14 +191,33 @@ final class Recs {
         return now(null);
     }
 
-    /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
+    /** This hour's titles for a tab, three at a time (a page): movies only ("movie"), shows only ("tv"), "anime", or null = both. */
     List<Pick> now(String kind) {
+        List<Pick> all = ordered(kind);
+        int from = pageOffset(kind, all.size());
+        return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
+    }
+
+    private final Map<String, Integer> pageAt = new HashMap<>();
+
+    private int pageOffset(String kind, int size) {
+        Integer v = pageAt.get(String.valueOf(kind));
+        return v != null && v < size ? v : 0;
+    }
+
+    /** Pages a tab forward (1) or back (-1) by three titles. False at either end. */
+    boolean page(String kind, int dir) {
+        int size = ordered(kind).size();
+        int next = pageOffset(kind, size) + 3 * dir;
+        if (next < 0 || next >= size) return false;
+        pageAt.put(String.valueOf(kind), next);
+        return true;
+    }
+
+    /** All the titles of a tab, the first being this hour's; never two from the same franchise. */
+    private List<Pick> ordered(String kind) {
+        if ("anime".equals(kind)) return animePicks;   // the catalog's own order (newest first); no TMDB key needed
         List<Pick> list = new ArrayList<>();
-        if ("anime".equals(kind)) {   // three of the catalog at a time, newest first; no TMDB key needed
-            List<Pick> all = animePicks;
-            int from = animeOffset < all.size() ? animeOffset : 0;
-            return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
-        }
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
@@ -207,14 +226,20 @@ final class Recs {
         }
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
-        // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
+        for (int i = 0; i < list.size(); i++) {
             Pick p = list.get((int) ((hour * 3 + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
         return out;
+    }
+
+    /** The link that opens this title's page in the catch-all app, or null (then the app is just launched). */
+    static String link(Pick p) {
+        if (p == null || !"catchall".equals(p.app)) return null;
+        if ("anime".equals(p.kind)) return p.ref == null ? null : "nuvio://series/" + p.ref;
+        return "nuvio://tmdb/" + ("movie".equals(p.kind) ? "movie" : "series") + "/" + p.id;
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -258,14 +283,6 @@ final class Recs {
         return new File(new File(context.getCacheDir(), "recs"), name);
     }
 
-    /** Pages the Anime tab forward (1) or back (-1) by three titles. False at either end. */
-    boolean animePage(int dir) {
-        int next = animeOffset + 3 * dir;
-        if (next < 0 || next >= animePicks.size()) return false;
-        animeOffset = next;
-        return true;
-    }
-
     private void refreshCatalog() {
         if (!hasCatalog() || animeFetching) return;
         long now = System.currentTimeMillis();
@@ -279,7 +296,6 @@ final class Recs {
                 List<Pick> list = parseCatalog(raw);
                 if (list.isEmpty()) throw new IOException("the catalog has no titles with an image");
                 animePicks = list;
-                if (animeOffset >= list.size()) animeOffset = 0;
                 animeAt = System.currentTimeMillis();
                 animeFailedAt = 0;
                 cache.edit().putString("anime", raw).apply();
@@ -293,12 +309,12 @@ final class Recs {
         });
     }
 
-    /** {"metas":[{"id","name","poster","background"}]}: the first 12 with an https background image. */
+    /** {"metas":[{"id","name","poster","background"}]}: the first 24 with an https background image. */
     private List<Pick> parseCatalog(String raw) throws org.json.JSONException {
         List<Pick> out = new ArrayList<>();
         JSONArray metas = new JSONObject(raw).getJSONArray("metas");
         String pkg = catchAllPackage();
-        for (int i = 0; i < metas.length() && out.size() < 12; i++) {
+        for (int i = 0; i < metas.length() && out.size() < 24; i++) {
             JSONObject o = metas.getJSONObject(i);
             String background = o.optString("background", "");
             String name = o.optString("name", "");
@@ -306,6 +322,7 @@ final class Recs {
             Pick p = new Pick();
             p.id = Math.abs(o.optString("id", name).hashCode());
             p.kind = "anime";
+            p.ref = o.optString("id", "").startsWith("tt") ? o.optString("id") : null;
             p.title = name;
             p.backdrop = background;
             p.app = "catchall";

@@ -1914,6 +1914,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             Recs.Pick p = cardIndex < cards.size() ? cards.get(cardIndex) : null;
             if (p == null || p.pkg == null) return;
             it = HomeApps.app(p.pkg, Recs.serviceName(p));
+            it.link = Recs.link(p);
             r = cardRects[cardIndex];
         } else {
             if (shelf.isEmpty()) return;
@@ -2349,10 +2350,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_CARDS:
                 if (dx != 0) {
                     int next = cardIndex + dx;
-                    if ("anime".equals(TAB_KIND[tab]) && (next < 0 || next >= cards.size())) {
-                        // Past the last (or first) card of the Anime tab: the next three titles of the catalog.
-                        if (!recs.animePage(dx)) return true;
+                    if (next < 0 || next >= cards.size()) {
+                        // Past the last (or first) card: the next (or previous) three titles of the tab.
+                        if (!recs.page(TAB_KIND[tab], dx)) return true;
                         updateCards();
+                        recs.refreshIfStale();   // details and photos of the new page
                         cardIndex = dx > 0 ? 0 : Math.max(0, cards.size() - 1);
                         retarget(false);
                         click.move();
