@@ -36,17 +36,38 @@ final class VolumeBar {
         wm = (WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
     }
 
+    private static final long FIRST_REPEAT_MS = 400, REPEAT_MS = 120, MAX_HOLD_MS = 15_000;
+    private boolean repeatUp;
+    private long heldSince;
+    private final Runnable repeater = new Runnable() {
+        @Override public void run() {
+            if (System.currentTimeMillis() - heldSince > MAX_HOLD_MS) return;   // the key-up got lost
+            step(repeatUp);
+            handler.postDelayed(this, REPEAT_MS);
+        }
+    };
+
     /** Channel up/down act as volume up/down. Returns true if the key is one of them (down and up are consumed). */
     boolean onKey(KeyEvent e) {
         int code = e.getKeyCode();
         if (code != KeyEvent.KEYCODE_CHANNEL_UP && code != KeyEvent.KEYCODE_CHANNEL_DOWN) return false;
-        if (e.getAction() == KeyEvent.ACTION_DOWN) {
-            boolean up = code == KeyEvent.KEYCODE_CHANNEL_UP;
-            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
-                    up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER, 0);   // flags 0: no system panel
-            show(up);
+        if (e.getAction() == KeyEvent.ACTION_UP) {
+            handler.removeCallbacks(repeater);
+        } else if (e.getRepeatCount() == 0) {
+            // We consume the key, so Android sends no repeats while it is held: we repeat ourselves.
+            handler.removeCallbacks(repeater);
+            repeatUp = code == KeyEvent.KEYCODE_CHANNEL_UP;
+            heldSince = System.currentTimeMillis();
+            step(repeatUp);
+            handler.postDelayed(repeater, FIRST_REPEAT_MS);
         }
         return true;
+    }
+
+    private void step(boolean up) {
+        audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
+                up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER, 0);   // flags 0: no system panel
+        show(up);
     }
 
     private void show(boolean up) {
@@ -72,6 +93,7 @@ final class VolumeBar {
 
     void hide() {
         handler.removeCallbacks(hider);
+        handler.removeCallbacks(repeater);
         if (bar == null) return;
         try { wm.removeView(bar); } catch (RuntimeException ignored) {}
         bar = null;
