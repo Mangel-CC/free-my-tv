@@ -9,6 +9,7 @@ import android.content.pm.ResolveInfo;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
@@ -25,7 +26,17 @@ public class ButtonsService extends AccessibilityService {
 
     private VolumeBar volume;
 
+    /** An exception here would kill the service and Android would not bring it back: nothing may escape. */
     @Override protected boolean onKeyEvent(KeyEvent e) {
+        try {
+            return handle(e);
+        } catch (Throwable t) {
+            Log.w("FMTVButtons", "key " + e.getKeyCode() + ": " + t);
+            return false;
+        }
+    }
+
+    private boolean handle(KeyEvent e) {
         if (volume == null) volume = new VolumeBar(this);
         if (volume.onKey(e)) return true;
         int code = e.getKeyCode();
@@ -80,6 +91,10 @@ public class ButtonsService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+
+    @Override protected void onServiceConnected() {
+        Log.i("FMTVButtons", "service connected");
+    }
 
     @Override public void onInterrupt() {}
 
