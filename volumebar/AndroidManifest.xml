@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.freemytv.volumebar"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <application
+        android:label="Free My TV Volume"
+        android:allowBackup="false">
+
+        <!-- Turned on by hand in Settings > Accessibility. Android restarts it after every boot. -->
+        <service
+            android:name=".VolumeService"
+            android:exported="true"
+            android:label="Free My TV Volume"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/volume_service" />
+        </service>
+    </application>
+</manifest>

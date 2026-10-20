@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="volume_service">Replaces the TV\'s volume bar with a small one on the right edge, so it does not cover subtitles. It only reads the volume keys.</string>
+</resources>

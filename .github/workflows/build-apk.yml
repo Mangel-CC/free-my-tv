@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ccr-13d4b73c-qi4t5q]
-    paths: ['app/**', 'build.sh', '.github/workflows/build-apk.yml']
+    paths: ['app/**', 'volumebar/**', 'build.sh', '.github/workflows/build-apk.yml']
 
 jobs:
   build:
@@ -30,3 +30,9 @@ jobs:
         with:
           name: FreeMyTV-apk
           path: FreeMyTV.apk
+      - name: Volume bar app (Android 11+)
+        run: ./volumebar/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTVVolume-apk
+          path: volumebar/FreeMyTVVolume.apk
