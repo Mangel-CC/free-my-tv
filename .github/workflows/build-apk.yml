@@ -24,7 +24,6 @@ jobs:
       - name: Settings
         run: |
           cp config.example.properties config.properties
-          sed -i 's/^custom_volume=.*/custom_volume=true/' config.properties
       - run: ./build.sh
       - uses: actions/upload-artifact@v4
         with:
