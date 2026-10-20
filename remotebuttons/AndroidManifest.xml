@@ -1,25 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.freemytv.volumebar"
+    package="io.freemytv.remotebuttons"
     android:versionCode="1"
     android:versionName="1.0">
 
+    <!-- Android 11+: without these the app can't "see" the other apps to open them by name. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
-        android:label="Free My TV Volume"
+        android:label="Free My TV Buttons"
         android:allowBackup="false">
 
         <!-- Turned on by hand in Settings > Accessibility. Android restarts it after every boot. -->
         <service
-            android:name=".VolumeService"
+            android:name=".ButtonsService"
             android:exported="true"
-            android:label="Free My TV Volume"
+            android:label="Free My TV Buttons"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
             <meta-data
                 android:name="android.accessibilityservice"
-                android:resource="@xml/volume_service" />
+                android:resource="@xml/buttons_service" />
         </service>
     </application>
 </manifest>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds FreeMyTVVolume.apk (Android 11+) without Gradle, like ../build.sh. Needs a JDK 17 and the Android SDK.
+# Builds FreeMyTVButtons.apk (Android 11+) without Gradle, like ../build.sh. Needs a JDK 17 and the Android SDK.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -21,9 +21,9 @@ rm -rf out && mkdir -p out/gen out/classes
 (cd out && zip -qj base.apk classes.dex)
 "$BT/zipalign" -f -p 4 out/base.apk out/aligned.apk
 
-if [ ! -f volumebar.keystore ]; then
-  "$KEYTOOL" -genkeypair -keystore volumebar.keystore -alias volumebar -keyalg RSA -keysize 2048 -validity 20000 \
-    -storepass volumebar -keypass volumebar -dname "CN=Free My TV Volume" >/dev/null 2>&1
+if [ ! -f remotebuttons.keystore ]; then
+  "$KEYTOOL" -genkeypair -keystore remotebuttons.keystore -alias remotebuttons -keyalg RSA -keysize 2048 -validity 20000 \
+    -storepass remotebuttons -keypass remotebuttons -dname "CN=Free My TV Buttons" >/dev/null 2>&1
 fi
-"$BT/apksigner" sign --ks volumebar.keystore --ks-pass pass:volumebar --key-pass pass:volumebar --out FreeMyTVVolume.apk out/aligned.apk
-echo "Built FreeMyTVVolume.apk"
+"$BT/apksigner" sign --ks remotebuttons.keystore --ks-pass pass:remotebuttons --key-pass pass:remotebuttons --out FreeMyTVButtons.apk out/aligned.apk
+echo "Built FreeMyTVButtons.apk"
