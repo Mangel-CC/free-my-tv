@@ -29,7 +29,7 @@ public class ButtonsService extends AccessibilityService {
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             if (code == NETFLIX) openApp("Nuvio");
             else if (code == YOUTUBE) openApp("SmartTube");
-            else openHdmi("3");
+            else if (!openHdmi("3")) openApp("Spotify");
         }
         return true;   // down and up are ours, so the TV's own action never runs
     }
@@ -52,8 +52,8 @@ public class ButtonsService extends AccessibilityService {
         Toast.makeText(this, name + ": app not found", Toast.LENGTH_LONG).show();
     }
 
-    /** Switches to the HDMI input whose name ends with this port number ("HDMI 3"). */
-    private void openHdmi(String port) {
+    /** Switches to the HDMI input whose name ends with this port number ("HDMI 3"). False if there is none. */
+    private boolean openHdmi(String port) {
         TvInputManager tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         StringBuilder seen = new StringBuilder();
         for (TvInputInfo in : tv.getTvInputList()) {
@@ -64,9 +64,10 @@ public class ButtonsService extends AccessibilityService {
             if (!label.trim().endsWith(port)) continue;
             startActivity(new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(in.getId()))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            return;
+            return true;
         }
         Toast.makeText(this, "HDMI " + port + " not found. Inputs: " + seen, Toast.LENGTH_LONG).show();
+        return false;
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
