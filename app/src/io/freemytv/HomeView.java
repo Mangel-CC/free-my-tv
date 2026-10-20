@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
@@ -85,7 +86,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
     // The tab bar is a 68 px capsule; the cards sit on the 5-column grid (the wide one spans 3).
-    private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
+    private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 69, L_TABBAR_H = 68, L_CARDS_TOP = 196, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
@@ -133,7 +134,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Spring[] cardFocus = new Spring[3];
     private final RectF[] cardRects = new RectF[3];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
-    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip;
+    private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lHeroTitle, lHeroMeta, lHeroButton, lClock;
+    // Google TV style hero: a scrim at the bottom of the first card, built once and moved with a matrix.
+    private final Paint scrimPaint = new Paint();
+    private final Matrix scrimMatrix = new Matrix();
+    private Shader scrimUnit;
     private Shader lightGradient;
 
     // Shelf
@@ -499,6 +504,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clockPaint = Ui.numbers(Ui.thin, 176 * k, 0xFFFFFFFF);
         clockPaint.setLetterSpacing(-0.01f);
         for (Paint p : new Paint[] {labelPaint, titlePaint, metaPaint, clockPaint}) p.setShadowLayer(22 * k, 0, 2 * k, 0x59000000);
+        lHeroTitle = Ui.text(Ui.displaySemibold, 64 * k, 0xFFFFFFFF);
+        lHeroTitle.setShadowLayer(14 * k, 0, 2 * k, 0x66000000);
+        lHeroMeta = Ui.text(Ui.medium, 27 * k, 0xE6FFFFFF);
+        lHeroMeta.setShadowLayer(10 * k, 0, 1 * k, 0x66000000);
+        lHeroButton = Ui.text(Ui.semibold, 27 * k, L_INK);
+        lHeroButton.setTextAlign(Paint.Align.CENTER);
+        lClock = Ui.text(Ui.semibold, 32 * k, 0xFFFFFFFF);
+        lClock.setTextAlign(Paint.Align.RIGHT);
+        scrimUnit = new LinearGradient(0, 0, 0, 1, 0x00000000, 0xD0000000, Shader.TileMode.CLAMP);
+        scrimPaint.setShader(scrimUnit);
         tileLabel = Ui.text(Ui.medium, 24 * k, 0xFFFFFFFF);
         tileLabel.setTextAlign(Paint.Align.CENTER);
         lTitle = Ui.text(Ui.displaySemibold, 76 * k, L_INK);
@@ -1068,7 +1083,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Coin logo + price in the configured currency, in a row at the right end of the tab bar. */
     private void drawQuotes(Canvas c) {
-        float right = platterRect.isEmpty() ? CONTENT_R * k : platterRect.right - SHELF_PAD * k;
+        float right = CONTENT_R * k;
         applyTone();
         Paint text = lQuote;
         // The corner buttons' names appear in this row: the quotes fade out while one of them has focus.
@@ -1077,8 +1092,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (fade <= 0.01f) return;
         int textColor = text.getColor();
         text.setColor(Ui.alpha(textColor, fade));
-        // On the tab row, at the right.
-        float base = (L_TABBAR_TOP + L_TABBAR_H / 2) * k + Ui.halfCap(text);
+        // Between the top row and the cards, at the right.
+        float base = 168 * k;
         float cap = Ui.cap(text), gap = 6 * k, spacing = 24 * k;
         int n = HomeData.coinCount();
         if (n == 0) { text.setColor(textColor); return; }
@@ -2168,14 +2183,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawLightTop(Canvas c) {
         applyTone();
-        String hello = Ui.tr("Para você", "For You");
-        c.drawText(hello, MARGIN * k - Ui.leftBearing(lTitle, hello), L_TITLE_BASE * k, lTitle);
-        // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
-        // the white pill with a shadow and grows a little (the tvOS focus).
+        // Pill tabs (Google TV): the selected one is a white pill (it grows and gets a shadow with the focus).
         float focus = Ui.clamp(topFocus[tab].value);
         for (int i = 0; i < 3; i++) {
             RectF r = topRects[i];
-            if (i == tab && focus > 0.01f) {
+            if (i == tab) {
                 float s = 1 + 0.05f * focus;
                 cell.set(r.centerX() - r.width() * s / 2, r.centerY() - r.height() * s / 2,
                         r.centerX() + r.width() * s / 2, r.centerY() + r.height() * s / 2);
@@ -2187,11 +2199,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                     c.drawRoundRect(tmp, rr, rr, shadow);
                 }
                 fill.setShader(null);
-                fill.setColor(Ui.alpha(0xFFFFFFFF, focus));
+                fill.setColor(Ui.alpha(0xFFFFFFFF, 0.78f + 0.22f * focus));
                 c.drawRoundRect(cell, rr, rr, fill);
             }
             Paint p = i == tab ? lTabOn : lTab;
-            if (i == tab) lTabOn.setColor(blend(tone(L_INK, WHITE), L_INK, focus));   // always dark on the white pill
+            if (i == tab) lTabOn.setColor(L_INK);   // always dark on the white pill
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
         int top = -1;
@@ -2235,6 +2247,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fill.setColor(tone(0xFFDADADF, 0xFF2C2C2E));
             c.drawRect(cell, fill);
         }
+        if (i == 0 && p != null) {
+            float sh = cell.height() * 0.62f;
+            scrimMatrix.setScale(1, sh);
+            scrimMatrix.postTranslate(0, cell.bottom - sh);
+            scrimUnit.setLocalMatrix(scrimMatrix);
+            c.drawRect(cell.left, cell.bottom - sh, cell.right, cell.bottom, scrimPaint);
+        }
         if (f > 0.01f) {
             sheen.setShader(new LinearGradient(cell.left, cell.top, cell.left + cell.width() * 0.5f, cell.bottom,
                     Ui.alpha(0xFFFFFFFF, 0.22f * f), 0x00FFFFFF, Shader.TileMode.CLAMP));
@@ -2247,6 +2266,25 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawRoundRect(cell, r, r, rim);
         }
         if (p == null) return;
+        if (i == 0) {   // Google TV hero: title, details and the button over the photo
+            float x = cell.left + 40 * k, room = cell.width() * 0.72f;
+            float buttonH = 62 * k, bottom = cell.bottom - 36 * k;
+            String button = Ui.tr("Assistir agora", "Watch now", "Ver ahora");
+            float buttonW = lHeroButton.measureText(button) + 70 * k;
+            tmp.set(x, bottom - buttonH, x + buttonW, bottom);
+            fill.setShader(null);
+            fill.setColor(Ui.alpha(0xFFFFFFFF, 0.92f));
+            c.drawRoundRect(tmp, buttonH / 2, buttonH / 2, fill);
+            c.drawText(button, tmp.centerX(), tmp.centerY() + Ui.halfCap(lHeroButton), lHeroButton);
+            float metaBase = tmp.top - 26 * k;
+            if (p.meta != null && !p.meta.isEmpty()) {
+                TextPaint mp = new TextPaint(lHeroMeta);
+                c.drawText(TextUtils.ellipsize(p.meta, mp, room, TextUtils.TruncateAt.END).toString(), x, metaBase, lHeroMeta);
+            }
+            TextPaint tp = new TextPaint(lHeroTitle);
+            c.drawText(TextUtils.ellipsize(p.title, tp, room, TextUtils.TruncateAt.END).toString(), x, metaBase - 52 * k, lHeroTitle);
+            return;
+        }
         TextPaint tp = new TextPaint(lCardTitle);
         c.drawText(TextUtils.ellipsize(p.title, tp, bw, TextUtils.TruncateAt.END).toString(), base.left, base.bottom + 46 * k, lCardTitle);
         if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
@@ -2260,6 +2298,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * white with a dark icon (the tvOS focus) and its name appears below it.
      */
     private void drawLightButtons(Canvas c) {
+        if (lClock != null && topRects[3] != null && !topRects[3].isEmpty()) {
+            lClock.setColor(tone(L_INK, WHITE));
+            String now = clockText.isEmpty() ? "" : clockText;
+            String temp = data.weather != null && !Double.isNaN(data.weather.temp) ? "  ·  " + HomeData.degrees(data.weather.temp) : "";
+            c.drawText(now + temp, topRects[3].left - 44 * k, (L_TABBAR_TOP + L_TABBAR_H / 2) * k + Ui.halfCap(lClock), lClock);
+        }
         applyTone();
         for (int i = 0; i < 3; i++) {
             RectF r = topRects[3 + i];
