@@ -71,6 +71,14 @@ final class Prefs {
 
     // MARK: - City (from config.properties)
 
+    /** The TMDB key: the one sent from the computer (ConfigReceiver) wins over config.properties. */
+    static String tmdbKey() {
+        String v = app == null ? "" : sp().getString("tmdb_key", "");
+        return (v.isEmpty() ? Config.TMDB_KEY : v).trim();
+    }
+
+    static void setTmdbKey(String key) { put("tmdb_key", key.trim()); }
+
     static String city() { return Config.CITY.trim(); }
     static String latitude() { return Config.LATITUDE; }
     static String longitude() { return Config.LONGITUDE; }

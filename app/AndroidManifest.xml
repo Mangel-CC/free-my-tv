@@ -128,6 +128,13 @@
                 android:resource="@xml/remote_key_service" />
         </service>
 
+        <!-- The TMDB key from the computer (adb shell am broadcast): only the shell holds DUMP. -->
+        <receiver
+            android:name=".ConfigReceiver"
+            android:process=":home"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <receiver
             android:name=".HomeReceiver"
             android:exported="false">

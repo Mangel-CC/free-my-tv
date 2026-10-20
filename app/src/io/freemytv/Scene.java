@@ -5,7 +5,9 @@ import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.RadialGradient;
 import android.graphics.RecordingCanvas;
 import android.graphics.RectF;
 import android.graphics.RenderNode;
@@ -30,6 +32,11 @@ final class Scene {
     private final Paint flatFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint flatRim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fallback = new Paint();
+    // Without AGSL (Android 11/12): a gradient sky with two soft glows that drift slowly, and glass made of a tint, a
+    // sheen and a lit rim. The shaders are built once; only their matrices move, so nothing is allocated per frame.
+    private final Paint glowA = new Paint(), glowB = new Paint(), sheenPaint = new Paint(), rimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Matrix shaderMatrix = new Matrix();
+    private Shader sheenUnit, rimUnit;
     private final RenderNode auroraNode = new RenderNode("aurora");
     // The layer is drawn at a quarter size and scaled up: filtered, its soft shapes stay soft instead of stepping.
     private final Paint layerPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -57,6 +64,13 @@ final class Scene {
         flatRim.setStyle(Paint.Style.STROKE);
         flatRim.setColor(0x33FFFFFF);
         flatRim.setStrokeWidth(1.5f);
+        rimPaint.setStyle(Paint.Style.STROKE);
+        rimPaint.setStrokeWidth(1.5f);
+        // Unit gradients (0 to 1 in y): scaled to each glass panel with a matrix.
+        sheenUnit = new LinearGradient(0, 0, 0, 1, 0x30FFFFFF, 0x05FFFFFF, Shader.TileMode.CLAMP);
+        rimUnit = new LinearGradient(0, 0, 0, 1, 0x80FFFFFF, 0x1AFFFFFF, Shader.TileMode.CLAMP);
+        sheenPaint.setShader(sheenUnit);
+        rimPaint.setShader(rimUnit);
     }
 
     void setSize(int width, int height) {
@@ -85,6 +99,9 @@ final class Scene {
     void applyPalette() {
         push();
         fallback.setShader(new LinearGradient(0, 0, 0, h, palette.color(1), palette.color(0), Shader.TileMode.CLAMP));
+        float r = Math.max(w, h) * 0.65f;
+        glowA.setShader(new RadialGradient(0, 0, r, Ui.alpha(palette.color(2), 0.55f), 0x00000000, Shader.TileMode.CLAMP));
+        glowB.setShader(new RadialGradient(0, 0, r * 0.8f, Ui.alpha(palette.color(1), 0.5f), 0x00000000, Shader.TileMode.CLAMP));
     }
 
     private void push() {
@@ -220,6 +237,9 @@ final class Scene {
         if (aurora == null) {
             if (fallback.getShader() == null) applyPalette();
             c.drawRect(0, 0, w, h, fallback);
+            float t = time * 0.07f * Math.max(speed, 0.2f);
+            drawGlow(c, glowA, w * (0.25f + 0.08f * (float) Math.sin(t)), h * (0.2f + 0.08f * (float) Math.cos(t * 1.3f)));
+            drawGlow(c, glowB, w * (0.8f + 0.07f * (float) Math.cos(t * 0.8f)), h * (0.85f + 0.07f * (float) Math.sin(t * 1.1f)));
             return;
         }
         if (auroraDirty) {
@@ -237,6 +257,30 @@ final class Scene {
         c.restore();
     }
 
+    private void drawGlow(Canvas c, Paint p, float x, float y) {
+        shaderMatrix.setTranslate(x, y);
+        p.getShader().setLocalMatrix(shaderMatrix);
+        c.drawRect(0, 0, w, h, p);
+    }
+
+    /** Plain glass for the TVs without AGSL: tint, a soft sheen from the top and a rim that is lit at the top. */
+    private void flatGlass(Canvas c, RectF r, float radius, int tint, float tintAlpha, float body, float alpha) {
+        if (body > 0) {
+            flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.max(0.35f, tintAlpha) * alpha));
+            c.drawRoundRect(r, radius, radius, flatFill);
+            shaderMatrix.setScale(1, r.height());
+            shaderMatrix.postTranslate(0, r.top);
+            sheenUnit.setLocalMatrix(shaderMatrix);
+            sheenPaint.setAlpha(Math.round(255 * Math.min(1, alpha)));
+            c.drawRoundRect(r, radius, radius, sheenPaint);
+        }
+        shaderMatrix.setScale(1, r.height());
+        shaderMatrix.postTranslate(0, r.top);
+        rimUnit.setLocalMatrix(shaderMatrix);
+        rimPaint.setAlpha(Math.round(255 * Math.min(1, alpha)));
+        c.drawRoundRect(r, radius, radius, rimPaint);
+    }
+
     /**
      * Glass in rectangle `r` (screen coordinates, no canvas transform: the shader uses the real position).
      * body = 1: full glass; body = 0: just the light rim, on top of something already drawn.
@@ -249,11 +293,7 @@ final class Scene {
     void glass(Canvas c, RectF r, float radius, int tint, float tintAlpha, int glow, float glowAlpha, float lift, float body, float alpha) {
         if (alpha <= 0.004f) return;
         if (glass == null) {
-            if (body > 0) {
-                flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.max(0.35f, tintAlpha)));
-                c.drawRoundRect(r, radius, radius, flatFill);
-            }
-            c.drawRoundRect(r, radius, radius, flatRim);
+            flatGlass(c, r, radius, tint, tintAlpha, body, alpha);
             return;
         }
         float hw = r.width() / 2, hh = r.height() / 2, inner = Math.min(hw, hh);

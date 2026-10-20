@@ -35,7 +35,9 @@ final class RemoteKeys {
     }
 
     private static boolean hisense() {
-        return "Hisense".equalsIgnoreCase(Build.MANUFACTURER) || "Hisense".equalsIgnoreCase(Build.BRAND);
+        String names = (Build.MANUFACTURER + " " + Build.BRAND + " " + Build.PRODUCT + " " + Build.DEVICE)
+                .toLowerCase(Locale.ROOT);
+        return names.contains("hisense");
     }
 
     // Hisense: the remote's streaming buttons (codes read from a 55A53FUA's remote), fixed: Netflix, Prime Video,
@@ -65,7 +67,10 @@ final class RemoteKeys {
 
     private static boolean onHisenseKey(Context c, KeyEvent e) {
         int code = e.getKeyCode();
-        if (code != H_NETFLIX && code != H_PRIME && code != H_YOUTUBE && code != H_DISNEY && code != H_TUBI) return false;
+        if (code != H_NETFLIX && code != H_PRIME && code != H_YOUTUBE && code != H_DISNEY && code != H_TUBI) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0 && code > 200) AppLog.w("remote key " + code + " (not mapped)");
+            return false;
+        }
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             if (code == H_NETFLIX) openApp(c, "Nuvio Chapters");
             else if (code == H_DISNEY) openApp(c, "Nuvio");
