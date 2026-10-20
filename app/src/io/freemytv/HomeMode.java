@@ -105,11 +105,16 @@ final class HomeMode {
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        if (needsService()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+    }
+
+    /** The service filters the TCL app buttons and, with custom_volume, the volume keys. */
+    private static boolean needsService() {
+        return RemoteKeys.supported() || Config.CUSTOM_VOLUME;
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!needsService() || !FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, true);
         } catch (IOException e) {
@@ -213,7 +218,7 @@ final class HomeMode {
             s.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(sorted(disabled)));
             save(c, s);
-            if (RemoteKeys.supported()) {
+            if (needsService()) {
                 try {
                     remoteService(c, adb, true);
                 } catch (IOException e) {
