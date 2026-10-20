@@ -14,8 +14,8 @@ import android.view.View;
 import android.view.WindowManager;
 
 /**
- * Replaces the TV's volume bar, which sits at the bottom and covers subtitles, with a small one in the top-right
- * corner. The volume keys are taken here (RemoteKeyService) and applied with AudioManager without its own panel;
+ * Replaces the TV's volume bar, which sits at the bottom and covers subtitles, with a small vertical one at the
+ * right edge, centered. The volume keys are taken here (RemoteKeyService) and applied with AudioManager without its own panel;
  * with a soundbar on HDMI-ARC the system sends the change on to it, as it does for the TV's panel.
  */
 final class VolumeBar {
@@ -55,14 +55,13 @@ final class VolumeBar {
         if (bar == null) {
             bar = new Bar(ctx);
             float d = ctx.getResources().getDisplayMetrics().density;
-            WindowManager.LayoutParams lp = new WindowManager.LayoutParams((int) (320 * d), (int) (56 * d),
+            WindowManager.LayoutParams lp = new WindowManager.LayoutParams((int) (64 * d), (int) (320 * d),
                     WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                             | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                     PixelFormat.TRANSLUCENT);
-            lp.gravity = Gravity.TOP | Gravity.END;
+            lp.gravity = Gravity.CENTER_VERTICAL | Gravity.END;
             lp.x = (int) (48 * d);
-            lp.y = (int) (36 * d);
             try { wm.addView(bar, lp); } catch (RuntimeException ex) { AppLog.w("volume bar: " + ex.getMessage()); bar = null; return; }
         }
         bar.set(level, muted);
@@ -104,13 +103,13 @@ final class VolumeBar {
         @Override protected void onDraw(Canvas c) {
             float w = getWidth(), h = getHeight();
             r.set(0, 0, w, h);
-            c.drawRoundRect(r, h / 2, h / 2, panel);
-            float left = 24 * d, right = w - 80 * d, mid = h / 2, th = 6 * d;
-            r.set(left, mid - th / 2, right, mid + th / 2);
+            c.drawRoundRect(r, w / 2, w / 2, panel);
+            float mid = w / 2, th = 6 * d, top = 24 * d, bottom = h - 56 * d;
+            r.set(mid - th / 2, top, mid + th / 2, bottom);
             c.drawRoundRect(r, th / 2, th / 2, track);
-            r.set(left, mid - th / 2, left + (right - left) * level, mid + th / 2);
+            r.set(mid - th / 2, bottom - (bottom - top) * level, mid + th / 2, bottom);
             c.drawRoundRect(r, th / 2, th / 2, fill);
-            c.drawText(label, right + 16 * d, mid + text.getTextSize() / 3, text);
+            c.drawText(label, mid - text.measureText(label) / 2, h - 20 * d, text);
         }
     }
 }
