@@ -58,6 +58,12 @@ final class Recs {
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
     static final String[] PERIOD_LABEL_ES = {"PARA ESTA MAÑANA", "PARA ESTA TARDE", "PARA ESTA NOCHE"};
+    /**
+     * With none of the streaming apps above installed, the titles open in this app instead (it has them all):
+     * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
+     */
+    private static final String CATCH_ALL_APP = "Nuvio";
+
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
         {"netflix", "netflix", "com.netflix.ninja"},
@@ -83,12 +89,6 @@ final class Recs {
         SERVICE_NAME.put("appletv", "Apple TV");
         SERVICE_NAME.put("catchall", CATCH_ALL_APP);
     }
-    /**
-     * With none of the streaming apps above installed, the titles open in this app instead (it has them all):
-     * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
-     */
-    private static final String CATCH_ALL_APP = "Nuvio";
-
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
 
