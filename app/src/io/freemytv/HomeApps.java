@@ -432,6 +432,20 @@ final class HomeApps {
         return intent != null ? intent : pm.getLaunchIntentForPackage(pkg);
     }
 
+    /** Package of the launcher app with this name (the exact name first, then one that contains it), or null. */
+    static String packageByLabel(PackageManager pm, String name) {
+        String want = name.toLowerCase(java.util.Locale.ROOT);
+        for (boolean exact : new boolean[] {true, false}) {
+            for (String category : new String[] {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+                for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category), 0)) {
+                    String label = ri.loadLabel(pm).toString().trim().toLowerCase(java.util.Locale.ROOT);
+                    if (exact ? label.equals(want) : label.contains(want)) return ri.activityInfo.packageName;
+                }
+            }
+        }
+        return null;
+    }
+
     // MARK: - Colored logos (shelf)
 
     /** Bump when the way logos are lifted changes (the ones saved on disk are redone). */

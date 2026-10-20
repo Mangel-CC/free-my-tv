@@ -81,7 +81,14 @@ final class Recs {
         SERVICE_NAME.put("globoplay", "Globoplay");
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
+        SERVICE_NAME.put("catchall", CATCH_ALL_APP);
     }
+    /**
+     * With none of the streaming apps above installed, the titles open in this app instead (it has them all):
+     * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
+     */
+    private static final String CATCH_ALL_APP = "Nuvio";
+
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
 
@@ -376,11 +383,12 @@ final class Recs {
             String[] s = service(o.optString("provider_name"));
             if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
         }
-        if (services.isEmpty()) throw new IOException("none of the TV's streaming services are on TMDB");
+        boolean catchAll = services.isEmpty();
+        if (catchAll && catchAllPackage() == null) throw new IOException("none of the TV's streaming services are on TMDB");
         StringBuilder ids = new StringBuilder();
         for (int id : services.keySet()) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String common = "&language=" + lang() + "&watch_region=" + REGION + "&with_watch_monetization_types=flatrate&include_adult=false"
-                + "&sort_by=popularity.desc&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8");
+                + "&sort_by=popularity.desc" + (catchAll ? "" : "&with_watch_providers=" + URLEncoder.encode(ids.toString(), "UTF-8"));
         // 1. Trending this week (TMDB goes by what people are watching and searching for right now), only what is
         //    on one of the TV's services: the details say where (and are then ready).
         List<Pick> hotMovies = new ArrayList<>(), hotShows = new ArrayList<>();
@@ -481,6 +489,13 @@ final class Recs {
                 p.pkg = s[2];
             }
         }
+        if (p.app == null && !anyServiceInstalled()) {
+            String pkg = catchAllPackage();
+            if (pkg != null) {
+                p.app = "catchall";
+                p.pkg = pkg;
+            }
+        }
         if (p.app != null) parts.add(SERVICE_NAME.get(p.app));
         p.meta = String.join(" · ", parts);
         p.detailed = true;
@@ -531,6 +546,15 @@ final class Recs {
             if (s[0].equals("max") ? n.matches(".*\\bmax\\b.*") : n.contains(s[0])) return s;
         }
         return null;
+    }
+
+    private boolean anyServiceInstalled() {
+        for (String[] service : SERVICES) if (installed(service[2])) return true;
+        return false;
+    }
+
+    private String catchAllPackage() {
+        return HomeApps.packageByLabel(context.getPackageManager(), CATCH_ALL_APP);
     }
 
     private boolean installed(String pkg) {
