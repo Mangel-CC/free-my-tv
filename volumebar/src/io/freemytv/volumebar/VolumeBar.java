@@ -50,6 +50,15 @@ final class VolumeBar {
         return true;
     }
 
+    /** Diagnostic: shows a short text in the bar (the service is on, or which key code arrived). */
+    void note(String text) {
+        note = text;
+        show();
+        note = null;
+    }
+
+    private String note;
+
     private void show() {
         int max = Math.max(1, audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
         float level = audio.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max;
@@ -67,6 +76,7 @@ final class VolumeBar {
             try { wm.addView(bar, lp); } catch (RuntimeException ex) { bar = null; return; }
         }
         bar.set(level, muted);
+        if (note != null) bar.label(note);
         handler.removeCallbacks(hider);
         handler.postDelayed(hider, SHOW_MS);
     }
@@ -93,8 +103,10 @@ final class VolumeBar {
             track.setColor(0x33FFFFFF);
             fill.setColor(0xFFFFFFFF);
             text.setColor(0xFFFFFFFF);
-            text.setTextSize(18 * d);
+            text.setTextSize(14 * d);
         }
+
+        void label(String t) { label = t; invalidate(); }
 
         void set(float level, boolean muted) {
             this.level = muted ? 0 : level;
