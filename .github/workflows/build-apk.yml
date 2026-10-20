@@ -1,7 +1,7 @@
 name: Build APK
 
 # Builds FreeMyTV.apk with build.sh. Run it by hand (Actions > Build APK > Run workflow) or push to the volume branch.
-# No TMDB key goes in: the APK is public to anyone who can open the run. The signing key is new on every run.
+# No TMDB key goes in: the APK is public to anyone who can open the run. The signing key is kept in the Actions cache.
 on:
   workflow_dispatch:
   push:
@@ -28,6 +28,11 @@ jobs:
         run: |
           cp config.example.properties config.properties
           sed -i 's/^tmdb_region=.*/tmdb_region=MX/; s/^currency=.*/currency=MXN/; s/^temperature=.*/temperature=C/' config.properties
+      - name: Signing key (kept between builds, so an update installs over the previous one)
+        uses: actions/cache@v4
+        with:
+          path: freemytv.keystore
+          key: signing-key-v1
       - run: ./build.sh
       - uses: actions/upload-artifact@v4
         with:

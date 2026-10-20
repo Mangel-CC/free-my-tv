@@ -70,7 +70,8 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
-        int edge;           // color at the corner of the card (the round icon fills with it around the whole card), 0 = not read yet
+        int edge;           // color at the corner of the card (fallback fill of the round icon), 0 = not read yet
+        Bitmap icon;        // the app's own launcher icon (square, made for circles); null until loaded or if it has none
     }
 
     /**
@@ -426,6 +427,23 @@ final class HomeApps {
         } catch (RuntimeException ignored) {
         }
         return system != null ? system : fallback;
+    }
+
+    /** The app's launcher icon at 256 px (adaptive icons come masked), or null. Does a little work: call it off the UI thread. */
+    static Bitmap appIcon(Context c, String pkg) {
+        try {
+            PackageManager pm = c.getPackageManager();
+            Intent intent = launchIntent(pm, pkg);
+            android.graphics.drawable.Drawable d = intent == null ? null : pm.getActivityIcon(intent);
+            if (d == null) return null;
+            int size = 256;
+            Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            d.setBounds(0, 0, size, size);
+            d.draw(new Canvas(b));
+            return b;
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
     }
 
     static Intent launchIntent(PackageManager pm, String pkg) {

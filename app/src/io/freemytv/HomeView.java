@@ -1017,6 +1017,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         tilesDirty = true;
         platter.invalidate();
+        loadIcons(list);
+    }
+
+    private void loadIcons(List<HomeApps.Item> list) {
+        final Context ctx = getContext();
+        final List<HomeApps.Item> items = new ArrayList<>(list);
+        LOADER.execute(() -> {
+            boolean any = false;
+            for (HomeApps.Item it : items) {
+                if (it.icon != null || it.pkg == null || it.logo != null) continue;
+                it.icon = HomeApps.appIcon(ctx, it.pkg);
+                any |= it.icon != null;
+            }
+            if (any) handler.post(() -> {
+                tilesDirty = true;
+                tiles.invalidate();
+            });
+        });
     }
 
     private void layoutShelf() {
@@ -1149,8 +1167,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             clip.addRoundRect(cell, r, r, Path.Direction.CW);
             c.save();
             c.clipPath(clip);
-            if (it.tile != null) {
-                if (ROUND_ICONS) {   // the whole 16:9 card inside the circle, over its own corner color
+            if (ROUND_ICONS && it.icon != null) {   // the app's own icon, made for circles
+                tileFill.setShader(null);
+                tileFill.setColor(0xFF1B1D24);
+                c.drawRect(cell, tileFill);
+                c.drawBitmap(it.icon, null, cell, bitmapPaint);
+            } else if (it.tile != null) {
+                if (ROUND_ICONS) {   // no icon: the whole 16:9 card inside the circle, over its own corner color
                     if (it.edge == 0) it.edge = 0xFF000000 | it.tile.getPixel(2, 2);
                     tileFill.setShader(null);
                     tileFill.setColor(it.edge);
