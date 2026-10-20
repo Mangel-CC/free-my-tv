@@ -45,6 +45,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String ref;             // catalog titles: their IMDb id (for the deep link into the app)
+        String overview = "";   // the synopsis
         boolean detailed;
     }
 
@@ -54,7 +55,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 6;
+    private static final int CACHE_VERSION = 7;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -123,6 +124,7 @@ final class Recs {
     private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
     private final java.util.Set<String> pending = new java.util.HashSet<>();
     private volatile List<Pick> picks = new ArrayList<>();
+    private volatile List<Pick> popular = new ArrayList<>();   // TMDB's trending today, in its order (the Popular tab)
     private volatile int period = -1;
     private volatile long listAt;
     private volatile boolean fetching;
@@ -138,6 +140,8 @@ final class Recs {
         try {
             String saved = cache.getString("picks", null);
             if (saved != null) picks = parse(new JSONArray(saved));
+            String savedPopular = cache.getString("popular", null);
+            if (savedPopular != null) popular = parse(new JSONArray(savedPopular));
             period = cache.getInt("period", -1);
             listAt = cache.getLong("listAt", 0);
             listLanguage = cache.getString("language", cache.getBoolean("english", false) ? "en" : "pt");
@@ -213,6 +217,12 @@ final class Recs {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
+        if (kind == null && !popular.isEmpty()) {   // Popular: TMDB's order as it is (no hourly shuffle)
+            for (Pick p : popular) {
+                if (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed))) list.add(p);
+            }
+            return list;
+        }
         for (Pick p : picks) {
             if ((kind == null || kind.equals(p.kind))
                     && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
@@ -341,6 +351,7 @@ final class Recs {
                 String raw = getText(Config.CATALOG_URL.trim());
                 List<Pick> list = parseCatalog(raw);
                 if (list.isEmpty()) throw new IOException("the catalog has no titles with an image");
+                if (hasKey(context)) fillOverviews(list);
                 animePicks = list;
                 animeAt = System.currentTimeMillis();
                 animeFailedAt = 0;
@@ -355,11 +366,42 @@ final class Recs {
         });
     }
 
+    /** The synopsis of the catalog's first titles, by their IMDb id on TMDB (each asked once, then kept). */
+    private void fillOverviews(List<Pick> list) {
+        try {
+            JSONObject saved = new JSONObject(cache.getString("animeOverviews", "{}"));
+            boolean changed = false;
+            for (int i = 0; i < list.size() && i < 12; i++) {
+                Pick p = list.get(i);
+                if (p.ref == null || !p.overview.isEmpty() || saved.has(p.ref)) continue;
+                String text = "";
+                for (String language : new String[] {lang(), "en-US"}) {
+                    JSONObject found = get("/find/" + p.ref + "?external_source=imdb_id&language=" + language);
+                    JSONArray tv = found.optJSONArray("tv_results");
+                    if (tv != null && tv.length() > 0) text = tv.getJSONObject(0).optString("overview", "").trim();
+                    if (!text.isEmpty()) break;
+                }
+                saved.put(p.ref, text);
+                p.overview = text;
+                changed = true;
+            }
+            if (changed) cache.edit().putString("animeOverviews", saved.toString()).apply();
+        } catch (Exception e) {
+            AppLog.w("catalog synopsis: " + e.getMessage());
+        }
+    }
+
     /** {"metas":[{"id","name","poster","background"}]}: the first 24 with an https background image. */
     private List<Pick> parseCatalog(String raw) throws org.json.JSONException {
         List<Pick> out = new ArrayList<>();
         JSONArray metas = new JSONObject(raw).getJSONArray("metas");
         String pkg = catchAllPackage();
+        JSONObject overviews;
+        try {
+            overviews = new JSONObject(cache.getString("animeOverviews", "{}"));
+        } catch (org.json.JSONException e) {
+            overviews = new JSONObject();
+        }
         for (int i = 0; i < metas.length() && out.size() < 24; i++) {
             JSONObject o = metas.getJSONObject(i);
             String background = o.optString("background", "");
@@ -378,6 +420,7 @@ final class Recs {
             java.util.regex.Matcher m = EPISODE.matcher(o.optString("poster", ""));
             if (m.find()) meta += " · T" + m.group(1) + " E" + m.group(2);   // season and latest episode
             p.meta = meta + " · " + CATCH_ALL_LABEL;
+            p.overview = overviews.optString(o.optString("id", ""), "");
             out.add(p);
         }
         return out;
@@ -581,6 +624,15 @@ final class Recs {
         alternate(list, seen, hotMovies, hotShows, 24);
         alternate(list, seen, newMovies, newShows, 24);
         if (list.isEmpty()) throw new IOException("TMDB returned no recommendations");
+        // Popular now: TMDB's trending of the day, movies and shows together, in TMDB's own order.
+        List<Pick> pop = new ArrayList<>();
+        JSONArray day = get("/trending/all/day?language=" + lang()).getJSONArray("results");
+        for (int i = 0; i < day.length() && pop.size() < 20; i++) {
+            JSONObject o = day.getJSONObject(i);
+            String type = o.optString("media_type");
+            if (type.equals("movie") || type.equals("tv")) add(pop, o, type);
+        }
+        popular = pop;
         picks = list;
         period = p;
         listAt = System.currentTimeMillis();
@@ -629,6 +681,13 @@ final class Recs {
                 + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        p.overview = o.optString("overview", "").trim();
+        if (p.overview.isEmpty()) {
+            try {
+                p.overview = get("/" + p.kind + "/" + p.id + "?language=en-US").optString("overview", "").trim();
+            } catch (Exception ignored) {
+            }
+        }
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));
@@ -840,9 +899,15 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed));
+                        .put("detailed", p.detailed).put("overview", p.overview));
             }
-            cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
+            JSONArray pop = new JSONArray();
+            for (Pick p : popular) {
+                pop.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
+                        .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                        .put("detailed", p.detailed).put("overview", p.overview));
+            }
+            cache.edit().putString("popular", pop.toString()).putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
                     .putLong("keyStamp", keyStamp).putInt("version", CACHE_VERSION).apply();
         } catch (Exception ignored) {
@@ -863,6 +928,7 @@ final class Recs {
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
+            p.overview = o.optString("overview", "");
             out.add(p);
         }
         return out;

@@ -93,9 +93,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float HERO_W = 1360, HERO_H = 700, ROW_TITLE_BASE = 632, CARD_TOP = 656, CARD_W = 292, CARD_HEIGHT = 164, CARD_SPACE = 24;
     private static final int CARDS_ON_SCREEN = 5;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
-    private static final String[] TABS = {"Explorar", "Filmes", "Séries", "Anime"};
-    private static final String[] TABS_EN = {"Explore", "Movies", "Shows", "Anime"};
-    private static final String[] TABS_ES = {"Explorar", "Películas", "Series", "Anime"};
+    private static final String[] TABS = {"Popular", "Filmes", "Séries", "Anime"};
+    private static final String[] TABS_EN = {"Popular", "Movies", "Shows", "Anime"};
+    private static final String[] TABS_ES = {"Popular", "Películas", "Series", "Anime"};
     private static final String[] TAB_KIND = {null, "movie", "tv", "anime"};
     // The fourth tab (the catalog) is there only with catalog_url in config.properties.
     private static final int TAB_COUNT = Recs.hasCatalog() ? 4 : 3;
@@ -142,6 +142,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int rowFirst;   // first card of the row on screen
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint cardRim, dimPaint, dotPaint, lRowTitle, lChip;
+    private TextPaint lOverview;
+    private StaticLayout overviewLayout;   // the focused title's synopsis, laid out once per title
+    private String overviewFor = "";
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lHeroTitle, lHeroMeta, lHeroButton, lClock;
     // Google TV style hero: a scrim at the bottom of the first card, built once and moved with a matrix.
     private final Paint scrimPaint = new Paint();
@@ -520,6 +523,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         lRowTitle = Ui.text(Ui.semibold, 28 * k, 0xCCFFFFFF);
         lChip = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
+        lOverview = new TextPaint(Ui.text(Ui.regular, 26 * k, 0xE6FFFFFF));
+        lOverview.setShadowLayer(10 * k, 0, 1 * k, 0x80000000);
         lHeroTitle = Ui.text(Ui.displaySemibold, 76 * k, 0xFFFFFFFF);
         lHeroTitle.setShadowLayer(14 * k, 0, 2 * k, 0x66000000);
         lHeroMeta = Ui.text(Ui.medium, 27 * k, 0xE6FFFFFF);
@@ -2252,10 +2257,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         recs.backdrop(p);   // the background photo of the focused title (made in the background if needed)
         float x = MARGIN * k, room = 800 * k;
         String app = Recs.serviceName(p);
-        float base = 400 * k;
+        float base = 350 * k;
         if (p.meta != null && !p.meta.isEmpty()) {
             TextPaint mp = new TextPaint(lHeroMeta);
             c.drawText(TextUtils.ellipsize(p.meta, mp, room, TextUtils.TruncateAt.END).toString(), x, base + 66 * k, lHeroMeta);
+        }
+        if (p.overview != null && !p.overview.isEmpty()) {
+            String id = Recs.key(p) + "@" + Math.round(room);
+            if (overviewLayout == null || !id.equals(overviewFor)) {   // laid out once per title, not on every frame
+                overviewFor = id;
+                overviewLayout = StaticLayout.Builder.obtain(p.overview, 0, p.overview.length(), lOverview, Math.round(room))
+                        .setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(0, 1.12f).build();
+            }
+            c.save();
+            c.translate(x, base + 92 * k);
+            overviewLayout.draw(c);
+            c.restore();
         }
         TextPaint tp = new TextPaint(lHeroTitle);
         c.drawText(TextUtils.ellipsize(p.title, tp, room, TextUtils.TruncateAt.END).toString(), x, base, lHeroTitle);
