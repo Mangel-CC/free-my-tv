@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ccr-13d4b73c-qi4t5q]
-    paths: ['app/**', 'remotebuttons/**', 'build.sh', '.github/workflows/build-apk.yml']
+    paths: ['app/**', 'build.sh', '.github/workflows/build-apk.yml']
 
 permissions:
   contents: write   # to publish the APK as a release
@@ -35,21 +35,10 @@ jobs:
           path: freemytv.keystore
           key: signing-key-v1
       - run: ./build.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FreeMyTV-apk
-          path: FreeMyTV.apk
-      - name: Remote buttons app (Android 11+)
-        run: ./remotebuttons/build.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: FreeMyTVButtons-apk
-          path: remotebuttons/FreeMyTVButtons.apk
       - name: Publish the APK as a release (a direct download, no zip)
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete apk-latest --yes --cleanup-tag || true
           gh release create apk-latest FreeMyTV.apk --prerelease --target "$GITHUB_SHA" \
-            --title "Latest build" --notes "Built from $GITHUB_SHA. The signing key is new on every build."
+            --title "Latest build" --notes "Built from $GITHUB_SHA. The signing key is kept between builds."
