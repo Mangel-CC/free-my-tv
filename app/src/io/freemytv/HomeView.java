@@ -64,6 +64,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // them with 40 of padding (the focused icon grows 20% without touching its edge).
     private static final float SHELF_PAD = 40, TILE_GAP = 48;
     private static final float TILE_RADIUS = 22, TILE_MAX_W = 270;
+    // Google TV style apps row: round icons with the app name below, no bar behind them.
+    private static final float ICON = 124, ICON_GAP = 62;
+    private static final boolean ROUND_ICONS = true;
     // Tile focus (Apple TV style): it grows from the center and its shadow drops (it "rises" toward the viewer).
     private static final float FOCUS_GROW = 0.2f;
     // Corner capsule.
@@ -209,7 +212,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private Paint labelPaint, metaPaint, clockPaint, buttonPaint, capsuleText, tipPaint, quotePaint, staleQuote;
     private Paint rowTitle, drawerLabel, cardTitle, cardText, cardDim, cardDimRight, bigTemp, hourPaint, hourTemp;
-    private Paint pricePaint, changePaint, sheetTitle;
+    private Paint pricePaint, changePaint, sheetTitle, tileLabel;
+    private final Rect tileSrc = new Rect();
     private TextPaint titlePaint, gridLabel, toastPaint;
     private final Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint imagePaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
@@ -495,6 +499,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clockPaint = Ui.numbers(Ui.thin, 176 * k, 0xFFFFFFFF);
         clockPaint.setLetterSpacing(-0.01f);
         for (Paint p : new Paint[] {labelPaint, titlePaint, metaPaint, clockPaint}) p.setShadowLayer(22 * k, 0, 2 * k, 0x59000000);
+        tileLabel = Ui.text(Ui.medium, 24 * k, 0xFFFFFFFF);
+        tileLabel.setTextAlign(Paint.Align.CENTER);
         lTitle = Ui.text(Ui.displaySemibold, 76 * k, L_INK);
         lTitle.setLetterSpacing(0.004f);
         lTab = Ui.text(Ui.medium, 30 * k, L_DIM);
@@ -1015,23 +1021,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void layoutShelf() {
         int n = shelf.size();
-        float pad = SHELF_PAD * k, gap = TILE_GAP * k, th = L_TILE_H * k;
+        float pad = SHELF_PAD * k, gap = ICON_GAP * k;
         float full = (CONTENT_R - MARGIN) * k;
-        float tw = Math.min(TILE_MAX_W * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
-        float width = n * tw + Math.max(0, n - 1) * gap, left = (w - width) / 2f;
+        float d = Math.min(ICON * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));   // round icons: square tiles
+        float width = n * d + Math.max(0, n - 1) * gap, left = (w - width) / 2f;
         float top = L_PLATTER_TOP * k;
-        platterRect.set(left - pad, top, left + width + pad, top + th + 2 * pad);
+        platterRect.set(left - pad, top, left + width + pad, top + d + 2 * pad);
         float x = left, y = top + pad;
         for (int i = 0; i < n; i++) {
-            tileRects[i].set(x, y, x + tw, y + th);
-            x += tw + gap;
+            tileRects[i].set(x, y, x + d, y + d);
+            x += d + gap;
         }
         crispLogos.clear();
     }
 
     /** Shelf layer: the glass bar and its shadow (it only changes with the background). */
     private void drawPlatter(Canvas c) {
-        if (shelf.isEmpty()) return;
+        if (shelf.isEmpty() || ROUND_ICONS) return;
         float radius = (TILE_RADIUS + SHELF_PAD) * k;
         tmp.set(platterRect);
         tmp.offset(0, 18 * k);
@@ -1107,7 +1113,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         HomeApps.Item it = shelf.get(i);
         float f = tileFocus[i].value, fc = Ui.clamp(f), s = 1 + FOCUS_GROW * f;
         RectF base = tileRects[i];
-        float bw = base.width(), bh = base.height(), r0 = TILE_RADIUS * k;
+        float bw = base.width(), bh = base.height(), r0 = ROUND_ICONS ? Math.min(bw, bh) / 2 : TILE_RADIUS * k;
         float cx = base.centerX(), cy = base.centerY();
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
@@ -1143,9 +1149,32 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             clip.addRoundRect(cell, r, r, Path.Direction.CW);
             c.save();
             c.clipPath(clip);
-            if (it.tile != null) c.drawBitmap(it.tile, null, cell, bitmapPaint);
+            if (it.tile != null) {
+                if (ROUND_ICONS) {   // the middle square of the 16:9 card
+                    int side = it.tile.getHeight(), at = (it.tile.getWidth() - side) / 2;
+                    tileSrc.set(at, 0, at + side, side);
+                    c.drawBitmap(it.tile, tileSrc, cell, bitmapPaint);
+                } else {
+                    c.drawBitmap(it.tile, null, cell, bitmapPaint);
+                }
+            }
             c.restore();
         }
+        if (ROUND_ICONS && it.label != null) {
+            tileLabel.setColor(Ui.alpha(tone(L_INK, WHITE), 0.62f + 0.38f * fc));
+            tileLabel.setFakeBoldText(fc > 0.5f);
+            float room = bw * 1.35f;
+            CharSequence name = tileLabel.measureText(it.label) <= room ? it.label
+                    : TextUtils.ellipsize(it.label, tileLabelEllipsis(tileLabel), room, TextUtils.TruncateAt.END);
+            c.drawText(name, 0, name.length(), cx, cell.bottom + 34 * k, tileLabel);
+        }
+    }
+
+    private final TextPaint labelMeasure = new TextPaint();
+
+    private TextPaint tileLabelEllipsis(Paint p) {
+        labelMeasure.set(p);
+        return labelMeasure;
     }
 
     /**
