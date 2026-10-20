@@ -70,6 +70,7 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        int edge;           // color at the corner of the card (the round icon fills with it around the whole card), 0 = not read yet
     }
 
     /**

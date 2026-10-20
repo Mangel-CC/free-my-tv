@@ -1150,10 +1150,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.save();
             c.clipPath(clip);
             if (it.tile != null) {
-                if (ROUND_ICONS) {   // the middle square of the 16:9 card
-                    int side = it.tile.getHeight(), at = (it.tile.getWidth() - side) / 2;
-                    tileSrc.set(at, 0, at + side, side);
-                    c.drawBitmap(it.tile, tileSrc, cell, bitmapPaint);
+                if (ROUND_ICONS) {   // the whole 16:9 card inside the circle, over its own corner color
+                    if (it.edge == 0) it.edge = 0xFF000000 | it.tile.getPixel(2, 2);
+                    tileFill.setShader(null);
+                    tileFill.setColor(it.edge);
+                    c.drawRect(cell, tileFill);
+                    float dw = cell.width() * 0.96f, dh = dw * it.tile.getHeight() / it.tile.getWidth();
+                    tmp.set(cx - dw / 2, cy - dh / 2, cx + dw / 2, cy + dh / 2);
+                    c.drawBitmap(it.tile, null, tmp, bitmapPaint);
                 } else {
                     c.drawBitmap(it.tile, null, cell, bitmapPaint);
                 }
