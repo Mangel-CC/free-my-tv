@@ -770,9 +770,9 @@ final class Recs {
 
     private static void prune(File dir) {
         File[] files = dir.listFiles();
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= 64) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - 64; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }
