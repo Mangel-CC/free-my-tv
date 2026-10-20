@@ -2353,6 +2353,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             fill.setColor(0xFF2C2C2E);
             c.drawRect(cell, fill);
         }
+        if (p.cardBackdrop == null) {   // no picture titled in Spanish: the title's logo over the picture
+            Bitmap logo = recs.logo(p);
+            if (logo != null) {
+                float sh = cell.height() * 0.62f;
+                scrimMatrix.setScale(1, sh);
+                scrimMatrix.postTranslate(0, cell.bottom - sh);
+                scrimUnit.setLocalMatrix(scrimMatrix);
+                c.drawRect(cell.left, cell.bottom - sh, cell.right, cell.bottom, scrimPaint);
+                float boxW = cell.width() * 0.62f, boxH = cell.height() * 0.34f;
+                float scale = Math.min(boxW / logo.getWidth(), boxH / logo.getHeight());
+                float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
+                tmp.set(cell.left + 16 * k * s, cell.bottom - 14 * k * s - lh, cell.left + 16 * k * s + lw, cell.bottom - 14 * k * s);
+                c.drawBitmap(logo, null, tmp, bitmapPaint);
+            }
+        }
         dimPaint.setColor(Ui.alpha(0xFF000000, 0.32f * (1 - f)));   // the others are a little dimmer
         c.drawRect(cell, dimPaint);
         c.restore();

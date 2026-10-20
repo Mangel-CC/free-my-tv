@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String logo;            // the title's logo (a transparent picture: path on TMDB or a full https URL), for cards with no titled picture
         String cardBackdrop;    // the row's card: the picture with the title in the TV's language (null = same as backdrop)
         String ref;             // catalog titles: their IMDb id (for the deep link into the app)
         String overview = "";   // the synopsis
@@ -57,7 +58,7 @@ final class Recs {
     private static final String IMAGES_SMALL = "https://image.tmdb.org/t/p/w780";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 8;
+    private static final int CACHE_VERSION = 9;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -333,6 +334,60 @@ final class Recs {
         }
     }
 
+    /** The title's logo as a transparent bitmap (or null: it is loaded in the background; Listener.onRecs says when it's ready). */
+    Bitmap logo(Pick p) {
+        if (p == null || p.logo == null) return null;
+        final String key = p.logo;
+        synchronized (logos) {
+            Bitmap b = logos.get(key);
+            if (b != null) return b;
+            Long failed = logoFailed.get(key);
+            if (failed != null && System.currentTimeMillis() - failed < 5 * 60_000L) return null;
+            if (!logoPending.add(key)) return null;
+        }
+        imageIo.execute(() -> {
+            try {
+                loadLogo(key);
+            } finally {
+                synchronized (logos) { logoPending.remove(key); }
+            }
+        });
+        return null;
+    }
+
+    private final Map<String, Bitmap> logos = new LinkedHashMap<>();
+    private final java.util.Set<String> logoPending = new java.util.HashSet<>();
+    private final Map<String, Long> logoFailed = new HashMap<>();
+    private static final String IMAGES_LOGO = "https://image.tmdb.org/t/p/w300";
+
+    private void loadLogo(String path) {
+        boolean absolute = path.startsWith("https://");
+        File f = new File(new File(context.getCacheDir(), "recs"), "l" + (absolute ? Integer.toHexString(path.hashCode()) : path.replace("/", "")));
+        try {
+            fetch(f, absolute ? path : IMAGES_LOGO + path);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(f.getPath(), bounds);
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (bounds.outWidth / (opts.inSampleSize * 2) >= 600) opts.inSampleSize *= 2;
+            Bitmap logo = BitmapFactory.decodeFile(f.getPath(), opts);
+            if (logo == null) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();   // a damaged file: downloaded again next time
+                throw new IOException("unreadable image");
+            }
+            synchronized (logos) {
+                logos.put(path, logo);
+                while (logos.size() > 60) logos.remove(logos.keySet().iterator().next());
+            }
+            notifyListeners();
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            synchronized (logos) { logoFailed.put(path, System.currentTimeMillis()); }
+            AppLog.w("logo: " + (absolute ? e.getClass().getSimpleName() : e.getMessage()));   // a catalog URL carries a key
+        }
+    }
+
     private boolean hasImage(Pick p) {
         return p.backdrop != null && imageFile(p).exists();
     }
@@ -429,6 +484,8 @@ final class Recs {
                 p.meta = Ui.tr("Atualizado recentemente", "Recently updated", "Actualizado recientemente");
             }
             p.overview = overviews.optString(o.optString("id", ""), "");
+            String logo = o.optString("logo", "");
+            p.logo = logo.startsWith("https://") ? logo : null;
             out.add(p);
         }
         return out;
@@ -691,6 +748,7 @@ final class Recs {
         if (best != null) p.backdrop = best;
         String localized = bestBackdropIn(o.optJSONObject("images"), Ui.language);   // the title written over it, in Spanish
         p.cardBackdrop = localized != null ? localized : null;
+        p.logo = bestLogo(o.optJSONObject("images"), Ui.language);
         p.overview = o.optString("overview", "").trim();
         if (p.overview.isEmpty()) {
             try {
@@ -751,6 +809,27 @@ final class Recs {
     private static String genre(String name) {
         for (String[] g : Ui.es ? GENRES_ES : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
         return name;
+    }
+
+    /** The title's logo (PNG): in this language first, then English, then with no language. Null if TMDB has none. */
+    private static String bestLogo(JSONObject images, String language) {
+        JSONArray list = images == null ? null : images.optJSONArray("logos");
+        String best = null;
+        double bestScore = -1;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject b = list.optJSONObject(i);
+            String path = b == null ? "" : b.optString("file_path", "");
+            if (path.isEmpty() || path.endsWith(".svg")) continue;
+            String lang = b.isNull("iso_639_1") ? "" : b.optString("iso_639_1", "");
+            double rank = lang.equals(language) ? 3e6 : lang.equals("en") ? 2e6 : lang.isEmpty() ? 1e6 : -1;
+            if (rank < 0) continue;
+            double score = rank + Math.min(b.optInt("width"), 1500) * 10 + b.optDouble("vote_average", 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = path;
+            }
+        }
+        return best;
     }
 
     /** The best backdrop with the title written in this language (iso 639-1: "es"), or null if there is none. */
@@ -946,13 +1025,13 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop));
+                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop).put("logo", p.logo == null ? "" : p.logo));
             }
             JSONArray pop = new JSONArray();
             for (Pick p : popular) {
                 pop.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop));
+                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop).put("logo", p.logo == null ? "" : p.logo));
             }
             cache.edit().putString("popular", pop.toString()).putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -977,6 +1056,7 @@ final class Recs {
             p.detailed = o.optBoolean("detailed");
             p.overview = o.optString("overview", "");
             p.cardBackdrop = o.optString("card", "").isEmpty() ? null : o.optString("card", "");
+            p.logo = o.optString("logo", "").isEmpty() ? null : o.optString("logo", "");
             out.add(p);
         }
         return out;
