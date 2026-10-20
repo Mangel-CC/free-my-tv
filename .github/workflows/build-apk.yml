@@ -28,6 +28,7 @@ jobs:
         run: |
           cp config.example.properties config.properties
           sed -i 's/^tmdb_region=.*/tmdb_region=MX/; s/^currency=.*/currency=MXN/; s/^temperature=.*/temperature=C/' config.properties
+          sed -i 's#^catalog_url=.*#catalog_url=https://plugin.mangelcc.dev/catalog/series/animeflv-latest.json#' config.properties
       - name: Signing key (kept between builds, so an update installs over the previous one)
         uses: actions/cache@v4
         with:

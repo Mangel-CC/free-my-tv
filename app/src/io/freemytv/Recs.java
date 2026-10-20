@@ -92,6 +92,17 @@ final class Recs {
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
 
+    // The optional extra tab (config.properties "catalog_url"): a Stremio-style catalog; its titles open in CATCH_ALL_APP.
+    private volatile List<Pick> animePicks = new ArrayList<>();
+    private volatile long animeAt, animeFailedAt;
+    private volatile boolean animeFetching;
+    private static final long ANIME_EVERY = 10 * 60_000L, ANIME_RETRY = 2 * 60_000L;
+    private static final java.util.regex.Pattern EPISODE = java.util.regex.Pattern.compile("season=(\\d+)&episode=(\\d+)");
+
+    static boolean hasCatalog() {
+        return Config.CATALOG_URL.trim().startsWith("https://");
+    }
+
     private static Recs instance;
 
     static synchronized Recs get(Context c) {
@@ -126,6 +137,11 @@ final class Recs {
             listAt = cache.getLong("listAt", 0);
             listLanguage = cache.getString("language", cache.getBoolean("english", false) ? "en" : "pt");
             keyStamp = cache.getLong("keyStamp", 0);
+        } catch (Exception ignored) {
+        }
+        try {
+            String saved = cache.getString("anime", null);
+            if (saved != null && hasCatalog()) animePicks = parseCatalog(saved);
         } catch (Exception ignored) {
         }
     }
@@ -177,6 +193,10 @@ final class Recs {
     /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
+        if ("anime".equals(kind)) {   // the catalog's newest three; no TMDB key needed
+            List<Pick> all = animePicks;
+            return new ArrayList<>(all.subList(0, Math.min(3, all.size())));
+        }
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
@@ -232,11 +252,79 @@ final class Recs {
     }
 
     private File imageFile(Pick p) {
-        return new File(new File(context.getCacheDir(), "recs"), p.backdrop.replace("/", ""));
+        String name = p.backdrop.startsWith("https://") ? "a" + Integer.toHexString(p.backdrop.hashCode()) : p.backdrop.replace("/", "");
+        return new File(new File(context.getCacheDir(), "recs"), name);
+    }
+
+    private void refreshCatalog() {
+        if (!hasCatalog() || animeFetching) return;
+        long now = System.currentTimeMillis();
+        boolean fresh = !animePicks.isEmpty() && now >= animeAt && now - animeAt < ANIME_EVERY;
+        boolean waiting = animeFailedAt != 0 && now >= animeFailedAt && now - animeFailedAt < ANIME_RETRY;
+        if (fresh || waiting) return;
+        animeFetching = true;
+        io.execute(() -> {
+            try {
+                String raw = getText(Config.CATALOG_URL.trim());
+                List<Pick> list = parseCatalog(raw);
+                if (list.isEmpty()) throw new IOException("the catalog has no titles with an image");
+                animePicks = list;
+                animeAt = System.currentTimeMillis();
+                animeFailedAt = 0;
+                cache.edit().putString("anime", raw).apply();
+                notifyListeners();
+            } catch (Exception e) {
+                animeFailedAt = System.currentTimeMillis();
+                AppLog.w("catalog: " + e.getMessage());   // the URL has a key in it: never logged
+            } finally {
+                animeFetching = false;
+            }
+        });
+    }
+
+    /** {"metas":[{"id","name","poster","background"}]}: the first 12 with an https background image. */
+    private List<Pick> parseCatalog(String raw) throws org.json.JSONException {
+        List<Pick> out = new ArrayList<>();
+        JSONArray metas = new JSONObject(raw).getJSONArray("metas");
+        String pkg = catchAllPackage();
+        for (int i = 0; i < metas.length() && out.size() < 12; i++) {
+            JSONObject o = metas.getJSONObject(i);
+            String background = o.optString("background", "");
+            String name = o.optString("name", "");
+            if (!background.startsWith("https://") || name.isEmpty()) continue;
+            Pick p = new Pick();
+            p.id = Math.abs(o.optString("id", name).hashCode());
+            p.kind = "anime";
+            p.title = name;
+            p.backdrop = background;
+            p.app = "catchall";
+            p.pkg = pkg;
+            p.detailed = true;
+            String meta = "Anime";
+            java.util.regex.Matcher m = EPISODE.matcher(o.optString("poster", ""));
+            if (m.find()) meta += " · T" + m.group(1) + " E" + m.group(2);   // season and latest episode
+            p.meta = meta + " · " + CATCH_ALL_APP;
+            out.add(p);
+        }
+        return out;
+    }
+
+    private static String getText(String url) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(10000);
+        c.setRequestProperty("Accept", "application/json");
+        try {
+            if (c.getResponseCode() != 200) throw new IOException("catalog: HTTP " + c.getResponseCode());
+            return read(c.getInputStream());
+        } finally {
+            c.disconnect();
+        }
     }
 
     /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */
     void refreshIfStale() {
+        refreshCatalog();
         if (!hasKey(context) || fetching) return;
         long now = System.currentTimeMillis();
         long stamp = sourceStamp();   // a new key, country or installed streaming-app set refetches
@@ -605,7 +693,7 @@ final class Recs {
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(IMAGES + p.backdrop).openConnection();
+        HttpURLConnection c = (HttpURLConnection) new URL(p.backdrop.startsWith("https://") ? p.backdrop : IMAGES + p.backdrop).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
@@ -641,13 +729,14 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? 16 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
-            AppLog.w("recommendation image: " + e.getMessage());
+            // A catalog image URL carries a key: an exception message can quote it, so only its type is logged.
+            AppLog.w("recommendation image: " + (p.backdrop.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
         }
     }
 
