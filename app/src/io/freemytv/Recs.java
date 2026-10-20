@@ -44,6 +44,7 @@ final class Recs {
         int id;
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
+        String cardBackdrop;    // the row's card: the picture with the title in the TV's language (null = same as backdrop)
         String ref;             // catalog titles: their IMDb id (for the deep link into the app)
         String overview = "";   // the synopsis
         boolean detailed;
@@ -53,9 +54,10 @@ final class Recs {
 
     private static final String API = "https://api.themoviedb.org/3";
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
+    private static final String IMAGES_SMALL = "https://image.tmdb.org/t/p/w780";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 7;
+    private static final int CACHE_VERSION = 8;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -280,7 +282,7 @@ final class Recs {
     /** The row's small 16:9 card of a pick (or null: it is made in the background and Listener.onRecs says when it's ready). */
     Bitmap small(Pick p) {
         if (p == null || p.backdrop == null) return null;
-        final String key = p.backdrop;
+        final String key = cardPath(p);
         synchronized (smalls) {
             Bitmap b = smalls.get(key);
             if (b != null) return b;
@@ -303,9 +305,10 @@ final class Recs {
     private final Map<String, Long> smallFailed = new HashMap<>();
 
     private void loadSmall(Pick p) {
-        File f = imageFile(p);
+        File f = cardFile(p);
+        final String key = cardPath(p);
         try {
-            download(p);
+            fetch(f, cardUrl(p));
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(f.getPath(), bounds);
@@ -320,13 +323,13 @@ final class Recs {
             }
             Bitmap small = Backdrop.smallCard(src);
             synchronized (smalls) {
-                smalls.put(p.backdrop, small);
+                smalls.put(key, small);
                 while (smalls.size() > 40) smalls.remove(smalls.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
-            synchronized (smalls) { smallFailed.put(p.backdrop, System.currentTimeMillis()); }
-            AppLog.w("small card: " + (p.backdrop.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
+            synchronized (smalls) { smallFailed.put(key, System.currentTimeMillis()); }
+            AppLog.w("small card: " + (key.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
         }
     }
 
@@ -686,6 +689,8 @@ final class Recs {
                 + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language + ",en");
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        String localized = bestBackdropIn(o.optJSONObject("images"), Ui.language);   // the title written over it, in Spanish
+        p.cardBackdrop = localized != null ? localized : null;
         p.overview = o.optString("overview", "").trim();
         if (p.overview.isEmpty()) {
             try {
@@ -746,6 +751,23 @@ final class Recs {
     private static String genre(String name) {
         for (String[] g : Ui.es ? GENRES_ES : GENRES_PT) if (g[0].equalsIgnoreCase(name)) return g[1];
         return name;
+    }
+
+    /** The best backdrop with the title written in this language (iso 639-1: "es"), or null if there is none. */
+    private static String bestBackdropIn(JSONObject images, String language) {
+        JSONArray list = images == null ? null : images.optJSONArray("backdrops");
+        String best = null;
+        double bestScore = -1;
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject b = list.optJSONObject(i);
+            if (b == null || b.optString("file_path", "").isEmpty() || !language.equals(b.optString("iso_639_1", ""))) continue;
+            double score = Math.min(b.optInt("width"), 3840) * 100 + b.optDouble("vote_average", 0);
+            if (score > bestScore) {
+                bestScore = score;
+                best = b.optString("file_path");
+            }
+        }
+        return best;
     }
 
     /**
@@ -826,17 +848,37 @@ final class Recs {
 
     private void download(Pick p) throws IOException {
         File f = imageFile(p);
+        fetch(f, p.backdrop.startsWith("https://") ? p.backdrop : IMAGES + p.backdrop);
+    }
+
+    private void fetch(File f, String url) throws IOException {
         synchronized (("download:" + f.getName()).intern()) {   // the same picture is asked by several threads
-            downloadLocked(p, f);
+            downloadLocked(f, url);
         }
     }
 
-    private void downloadLocked(Pick p, File f) throws IOException {
+    /** The row card's picture: the small TMDB size (w780) of the localized backdrop; catalog pictures are used as they are. */
+    private static String cardPath(Pick p) {
+        return p.cardBackdrop != null ? p.cardBackdrop : p.backdrop;
+    }
+
+    private File cardFile(Pick p) {
+        String path = cardPath(p);
+        if (path.startsWith("https://")) return imageFile(p);
+        return new File(new File(context.getCacheDir(), "recs"), "s" + path.replace("/", ""));
+    }
+
+    private static String cardUrl(Pick p) {
+        String path = cardPath(p);
+        return path.startsWith("https://") ? path : IMAGES_SMALL + path;
+    }
+
+    private void downloadLocked(File f, String url) throws IOException {
         if (f.exists()) return;
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
         File part = new File(f.getPath() + ".part");
-        HttpURLConnection c = (HttpURLConnection) new URL(p.backdrop.startsWith("https://") ? p.backdrop : IMAGES + p.backdrop).openConnection();
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(8000);
         c.setReadTimeout(20000);
         try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
@@ -888,9 +930,9 @@ final class Recs {
 
     private static void prune(File dir) {
         File[] files = dir.listFiles();
-        if (files == null || files.length <= 64) return;
+        if (files == null || files.length <= 200) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 64; i++) {
+        for (int i = 0; i < files.length - 200; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }
@@ -904,13 +946,13 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed).put("overview", p.overview));
+                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop));
             }
             JSONArray pop = new JSONArray();
             for (Pick p : popular) {
                 pop.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
-                        .put("detailed", p.detailed).put("overview", p.overview));
+                        .put("detailed", p.detailed).put("overview", p.overview).put("card", p.cardBackdrop == null ? "" : p.cardBackdrop));
             }
             cache.edit().putString("popular", pop.toString()).putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
                     .putString("language", listLanguage)
@@ -934,6 +976,7 @@ final class Recs {
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
             p.detailed = o.optBoolean("detailed");
             p.overview = o.optString("overview", "");
+            p.cardBackdrop = o.optString("card", "").isEmpty() ? null : o.optString("card", "");
             out.add(p);
         }
         return out;
