@@ -162,6 +162,18 @@ final class Backdrop {
         return gpu(b);
     }
 
+    /** The row's small card: the photo center-cropped to 16:9 at SMALL_W × SMALL_H (the source is recycled). */
+    static Bitmap smallCard(Bitmap src) {
+        float ratio = (float) SMALL_W / SMALL_H;
+        int cw = Math.min(src.getWidth(), Math.round(src.getHeight() * ratio));
+        int ch = Math.min(src.getHeight(), Math.round(cw / ratio));
+        Bitmap crop = Bitmap.createBitmap(src, (src.getWidth() - cw) / 2, (src.getHeight() - ch) / 2, cw, ch);
+        Bitmap out = Bitmap.createScaledBitmap(crop, SMALL_W, SMALL_H, true);
+        if (crop != src && crop != out) crop.recycle();
+        src.recycle();
+        return out;
+    }
+
     private static Bitmap card(Bitmap full, int w, int h) {
         float ratio = (float) w / h;
         int cw = Math.min(full.getWidth(), Math.round(full.getHeight() * ratio));

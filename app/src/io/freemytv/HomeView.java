@@ -338,7 +338,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cardRects[i] = new RectF();
         }
         makeLightButtons();
-        recs.setLight(true);
+        recs.setLight(false);   // the sharp photo as the background (with its scrims), no blurred versions
         checkNight(false);
         sheetLayer.setVisibility(INVISIBLE);
         scene.setMotion(0.6f, 0f);
@@ -783,7 +783,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** What the glass shows: the photo lightened (by day), darkened (at night) or blended in between. */
     private int[] glassOf(Backdrop b) {
-        if (b.nightGlass == null || night <= 0.001f) return b.lightGlass;
+        if (b.nightGlass == null || night <= 0.001f) return b.lightGlass != null ? b.lightGlass : b.glass;
         if (night >= 0.999f) return b.nightGlass;
         // During the transition, the blend (only for the current background; a photo fading in uses the nearer side).
         if (b != bgTo) return night < 0.5f ? b.lightGlass : b.nightGlass;
@@ -803,7 +803,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** What the frosted glass shows (drawer, toasts): the blurred photo, darkened at night. */
     private int[] frostOf(Backdrop b) {
-        if (b.nightFrost == null || night <= 0.001f) return b.frost;
+        if (b.nightFrost == null) return b.frost;
+        if (night <= 0.001f) return b.frost;
         if (night >= 0.999f) return b.nightFrost;
         if (b != bgTo) return night < 0.5f ? b.frost : b.nightFrost;
         for (int i = 0; i < frostNight.length; i++) frostNight[i] = mix(b.frost[i], b.nightFrost[i], night);
@@ -2154,9 +2155,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 retarget(false);
             }
         }
-        for (Recs.Pick p : recs.wanted()) recs.backdrop(p);   // all three tabs preloaded: switching tabs is instant
+        for (Recs.Pick p : cards) recs.small(p);   // the row's small cards: cheap, all of them
         layoutRow();
-        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(Math.min(cardIndex, cards.size() - 1)));
+        int at = cards.isEmpty() ? 0 : Math.min(cardIndex, cards.size() - 1);
+        Backdrop b = cards.isEmpty() ? null : recs.backdrop(cards.get(at));
+        if (at + 1 < cards.size()) recs.backdrop(cards.get(at + 1));   // the next one, so moving right is quick
         if (cards.isEmpty() || b != null) showBackdrop(b);
         heroDirty = true;
         spoken.focusMoved();    // new picks under the focused card
@@ -2203,6 +2206,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawLightImage(Canvas c, Backdrop b, float alpha) {
+        if (b.image != null) {   // the sharp photo, with the scrims already on it
+            drawImage(c, b.image, alpha);
+            return;
+        }
         if (night < 0.999f || b.nightImage == null) drawImage(c, b.lightImage, alpha);
         if (night > 0.001f) drawImage(c, b.nightImage, alpha * night);
     }
@@ -2242,11 +2249,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (cards.isEmpty()) return;
         int at = Math.max(0, Math.min(cardIndex, cards.size() - 1));
         Recs.Pick p = cards.get(at);
-        Backdrop b = recs.backdrop(p);
-        if (b != null && b.hero != null) {
-            tmp.set(w - HERO_W * k, 0, w, HERO_H * k);
-            c.drawBitmap(b.hero, null, tmp, bitmapPaint);
-        }
+        recs.backdrop(p);   // the background photo of the focused title (made in the background if needed)
         float x = MARGIN * k, room = 800 * k;
         String app = Recs.serviceName(p);
         float base = 400 * k;
@@ -2302,9 +2305,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clip.addRoundRect(cell, r, r, Path.Direction.CW);
         c.save();
         c.clipPath(clip);
-        Backdrop b = recs.backdrop(p);
-        if (b != null && b.small != null) {
-            c.drawBitmap(b.small, null, cell, bitmapPaint);
+        Bitmap small = recs.small(p);
+        if (small != null) {
+            c.drawBitmap(small, null, cell, bitmapPaint);
         } else {
             fill.setShader(null);
             fill.setColor(0xFF2C2C2E);

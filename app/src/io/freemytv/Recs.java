@@ -263,6 +263,53 @@ final class Recs {
         return null;
     }
 
+    /** The row's small 16:9 card of a pick (or null: it is made in the background and Listener.onRecs says when it's ready). */
+    Bitmap small(Pick p) {
+        if (p == null || p.backdrop == null) return null;
+        final String key = p.backdrop;
+        synchronized (smalls) {
+            Bitmap b = smalls.get(key);
+            if (b != null) return b;
+            if (!smallPending.add(key)) return null;
+        }
+        io.execute(() -> {
+            try {
+                loadSmall(p);
+            } finally {
+                synchronized (smalls) { smallPending.remove(key); }
+            }
+        });
+        return null;
+    }
+
+    private final Map<String, Bitmap> smalls = new LinkedHashMap<>();   // the row's cards (small: all of them stay in memory)
+    private final java.util.Set<String> smallPending = new java.util.HashSet<>();
+
+    private void loadSmall(Pick p) {
+        File f = imageFile(p);
+        try {
+            download(p);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(f.getPath(), bounds);
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.SMALL_W * 2) opts.inSampleSize *= 2;
+            Bitmap src = BitmapFactory.decodeFile(f.getPath(), opts);
+            if (src == null) throw new IOException("unreadable image");
+            Bitmap small = Backdrop.smallCard(src);
+            synchronized (smalls) {
+                smalls.put(p.backdrop, small);
+                while (smalls.size() > 40) smalls.remove(smalls.keySet().iterator().next());
+            }
+            notifyListeners();
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+            AppLog.w("small card: " + (p.backdrop.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
+        }
+    }
+
     private boolean hasImage(Pick p) {
         return p.backdrop != null && imageFile(p).exists();
     }
