@@ -53,7 +53,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 3;
+    private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -446,9 +446,14 @@ final class Recs {
         return String.format(Locale.US, "%04d-%02d-%02d", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
     }
 
+    /** Original languages of the picks: Spanish, English and Portuguese (not the world's whole trending list). */
+    private static final String ORIGINAL_LANGUAGES = ",es,en,pt,";
+
     private static void add(List<Pick> list, JSONObject o, String kind) {
         String backdrop = o.optString("backdrop_path", "");
         if (backdrop.isEmpty() || "null".equals(backdrop)) return;
+        String original = o.optString("original_language", "");
+        if (!original.isEmpty() && !ORIGINAL_LANGUAGES.contains("," + original + ",")) return;
         Pick p = new Pick();
         p.id = o.optInt("id");
         p.kind = kind;
