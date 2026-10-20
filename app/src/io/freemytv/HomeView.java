@@ -2356,16 +2356,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p.cardBackdrop == null) {   // no picture titled in Spanish: the title's logo over the picture
             Bitmap logo = recs.logo(p);
             if (logo != null) {
-                float sh = cell.height() * 0.62f;
+                float sh = cell.height() * 0.5f;   // a soft scrim only where the logo is
                 scrimMatrix.setScale(1, sh);
                 scrimMatrix.postTranslate(0, cell.bottom - sh);
                 scrimUnit.setLocalMatrix(scrimMatrix);
+                scrimPaint.setAlpha(150);
                 c.drawRect(cell.left, cell.bottom - sh, cell.right, cell.bottom, scrimPaint);
-                float boxW = cell.width() * 0.62f, boxH = cell.height() * 0.34f;
-                float scale = Math.min(boxW / logo.getWidth(), boxH / logo.getHeight());
+                // The logo is as wide as it can be (up to 58% of the card) without getting taller than 28%, never upscaled.
+                float boxW = cell.width() * 0.58f, boxH = cell.height() * 0.28f;
+                float scale = Math.min(Math.min(boxW / logo.getWidth(), boxH / logo.getHeight()), 1f);
                 float lw = logo.getWidth() * scale, lh = logo.getHeight() * scale;
-                tmp.set(cell.left + 16 * k * s, cell.bottom - 14 * k * s - lh, cell.left + 16 * k * s + lw, cell.bottom - 14 * k * s);
+                float pad = 16 * k * s;
+                tmp.set(cell.left + pad, cell.bottom - pad - lh, cell.left + pad + lw, cell.bottom - pad);
+                bitmapPaint.setColorFilter(recs.logoIsDark(p) ? whiteLogo : null);   // a dark logo in white
                 c.drawBitmap(logo, null, tmp, bitmapPaint);
+                bitmapPaint.setColorFilter(null);
             }
         }
         dimPaint.setColor(Ui.alpha(0xFF000000, 0.32f * (1 - f)));   // the others are a little dimmer

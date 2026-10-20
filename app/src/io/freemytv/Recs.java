@@ -358,6 +358,38 @@ final class Recs {
     private final Map<String, Bitmap> logos = new LinkedHashMap<>();
     private final java.util.Set<String> logoPending = new java.util.HashSet<>();
     private final Map<String, Long> logoFailed = new HashMap<>();
+    private final java.util.Set<String> darkLogos = new java.util.HashSet<>();   // logos that are dark: drawn in white over the scrim
+
+    boolean logoIsDark(Pick p) {
+        synchronized (logos) { return p != null && p.logo != null && darkLogos.contains(p.logo); }
+    }
+
+    /** Crops the transparent margins (every logo then has the same alignment) and tells if the ink is dark. */
+    private static Bitmap trimmed(Bitmap b, boolean[] dark) {
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = new int[w * h];
+        b.getPixels(px, 0, w, 0, 0, w, h);
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        double ink = 0, weight = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int c = px[y * w + x], a = c >>> 24;
+                if (a <= 24) continue;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                double lum = (0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)) / 255.0;
+                ink += lum * a;
+                weight += a;
+            }
+        }
+        dark[0] = weight > 0 && ink / weight < 0.38;
+        if (maxX < 0 || (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1)) return b;
+        Bitmap out = Bitmap.createBitmap(b, minX, minY, maxX - minX + 1, maxY - minY + 1);
+        if (out != b) b.recycle();
+        return out;
+    }
     private static final String IMAGES_LOGO = "https://image.tmdb.org/t/p/w300";
 
     private void loadLogo(String path) {
@@ -377,7 +409,10 @@ final class Recs {
                 f.delete();   // a damaged file: downloaded again next time
                 throw new IOException("unreadable image");
             }
+            boolean[] dark = new boolean[1];
+            logo = trimmed(logo, dark);
             synchronized (logos) {
+                if (dark[0]) darkLogos.add(path);
                 logos.put(path, logo);
                 while (logos.size() > 60) logos.remove(logos.keySet().iterator().next());
             }
