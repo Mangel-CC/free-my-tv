@@ -416,10 +416,15 @@ final class Recs {
             p.app = "catchall";
             p.pkg = pkg;
             p.detailed = true;
-            String meta = "Anime";
             java.util.regex.Matcher m = EPISODE.matcher(o.optString("poster", ""));
-            if (m.find()) meta += " · T" + m.group(1) + " E" + m.group(2);   // season and latest episode
-            p.meta = meta + " · " + CATCH_ALL_LABEL;
+            if (m.find()) {   // the season and the latest episode, as in the catalog's poster link
+                String season = String.valueOf(Integer.parseInt(m.group(1))), episode = String.valueOf(Integer.parseInt(m.group(2)));
+                p.meta = Ui.tr("Episódio " + episode + " da temporada " + season + " já disponível",
+                        "Season " + season + ", episode " + episode + " now available",
+                        "Episodio " + episode + " de la temporada " + season + " ya disponible");
+            } else {
+                p.meta = Ui.tr("Atualizado recentemente", "Recently updated", "Actualizado recientemente");
+            }
             p.overview = overviews.optString(o.optString("id", ""), "");
             out.add(p);
         }

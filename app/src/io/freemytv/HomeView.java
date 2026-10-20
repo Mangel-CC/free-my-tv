@@ -142,7 +142,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int rowFirst;   // first card of the row on screen
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint cardRim, dimPaint, dotPaint, lRowTitle, lChip;
-    private TextPaint lOverview;
+    private TextPaint lOverview, heroTitleBig, heroTitleSmall;
+    private StaticLayout titleLayout;   // the title: up to two lines, smaller when it is long
+    private String titleFor = "";
     private StaticLayout overviewLayout;   // the focused title's synopsis, laid out once per title
     private String overviewFor = "";
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lHeroTitle, lHeroMeta, lHeroButton, lClock;
@@ -523,6 +525,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         lRowTitle = Ui.text(Ui.semibold, 28 * k, 0xCCFFFFFF);
         lChip = Ui.text(Ui.semibold, 24 * k, 0xFFFFFFFF);
+        heroTitleBig = new TextPaint(Ui.text(Ui.displaySemibold, 76 * k, 0xFFFFFFFF));
+        heroTitleBig.setShadowLayer(14 * k, 0, 2 * k, 0x66000000);
+        heroTitleSmall = new TextPaint(Ui.text(Ui.displaySemibold, 56 * k, 0xFFFFFFFF));
+        heroTitleSmall.setShadowLayer(12 * k, 0, 2 * k, 0x66000000);
         lOverview = new TextPaint(Ui.text(Ui.regular, 26 * k, 0xE6FFFFFF));
         lOverview.setShadowLayer(10 * k, 0, 1 * k, 0x80000000);
         lHeroTitle = Ui.text(Ui.displaySemibold, 76 * k, 0xFFFFFFFF);
@@ -2274,10 +2280,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             overviewLayout.draw(c);
             c.restore();
         }
-        TextPaint tp = new TextPaint(lHeroTitle);
-        c.drawText(TextUtils.ellipsize(p.title, tp, room, TextUtils.TruncateAt.END).toString(), x, base, lHeroTitle);
+        // Title: its last line sits on `base`; a long one takes two lines (smaller if it needs more). Laid out once per title.
+        String titleId = Recs.key(p) + "@" + Math.round(room);
+        if (titleLayout == null || !titleId.equals(titleFor)) {
+            titleFor = titleId;
+            StaticLayout big = StaticLayout.Builder.obtain(p.title, 0, p.title.length(), heroTitleBig, Math.round(room))
+                    .setMaxLines(3).setLineSpacing(0, 0.98f).build();
+            titleLayout = big.getLineCount() <= 2 ? big
+                    : StaticLayout.Builder.obtain(p.title, 0, p.title.length(), heroTitleSmall, Math.round(room))
+                            .setMaxLines(2).setEllipsize(TextUtils.TruncateAt.END).setLineSpacing(0, 0.98f).build();
+        }
+        float titleTop = base - titleLayout.getLineBaseline(titleLayout.getLineCount() - 1);
+        c.save();
+        c.translate(x, titleTop);
+        titleLayout.draw(c);
+        c.restore();
         if (!app.isEmpty()) {   // the app that plays it, as a small pill above the title
-            float cw = lChip.measureText(app) + 44 * k, chH = 46 * k, top = base - 76 * k - chH - 18 * k;
+            float cw = lChip.measureText(app) + 44 * k, chH = 46 * k, top = titleTop + titleLayout.getLineBaseline(0) - 66 * k - chH;
             tmp.set(x, top, x + cw, top + chH);
             fill.setShader(null);
             fill.setColor(0x33FFFFFF);
@@ -2296,7 +2315,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** "Top picks for you" and the row of 16:9 cards (the focused one grows and gets a white border). */
     private void drawRow(Canvas c) {
         if (cards.isEmpty()) return;
-        c.drawText(Ui.tr("Recomendados para você", "Top picks for you", "Recomendado para ti"), MARGIN * k, ROW_TITLE_BASE * k, lRowTitle);
+        String kind = TAB_KIND[tab];
+        String rowTitle = "anime".equals(kind) ? Ui.tr("Últimos atualizados", "Recently updated", "Últimos actualizados")
+                : kind == null ? Ui.tr("Mais populares hoje", "Most popular today", "Lo más popular hoy")
+                : Ui.tr("Recomendados para você", "Top picks for you", "Recomendado para ti");
+        c.drawText(rowTitle, MARGIN * k, ROW_TITLE_BASE * k, lRowTitle);
         int top = -1;
         for (int i = 0; i < cards.size(); i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < cards.size(); i++) if (i != top) drawPickCard(c, i);
