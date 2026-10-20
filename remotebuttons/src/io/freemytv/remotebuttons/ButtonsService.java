@@ -23,7 +23,11 @@ import java.util.Locale;
 public class ButtonsService extends AccessibilityService {
     private static final int NETFLIX = 265, PRIME = 295, YOUTUBE = 293;
 
+    private VolumeBar volume;
+
     @Override protected boolean onKeyEvent(KeyEvent e) {
+        if (volume == null) volume = new VolumeBar(this);
+        if (volume.onKey(e)) return true;
         int code = e.getKeyCode();
         if (code != NETFLIX && code != PRIME && code != YOUTUBE) return false;
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
@@ -73,4 +77,9 @@ public class ButtonsService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
 
     @Override public void onInterrupt() {}
+
+    @Override public boolean onUnbind(Intent intent) {
+        if (volume != null) volume.hide();
+        return super.onUnbind(intent);
+    }
 }

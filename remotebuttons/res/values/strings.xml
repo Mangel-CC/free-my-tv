@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="buttons_service">Makes the streaming buttons on the remote open the apps or the HDMI input you chose. It only reads those buttons.</string>
+    <string name="buttons_service">Makes the streaming buttons on the remote open the apps or the HDMI input you chose, and the channel buttons change the volume. It only reads those buttons.</string>
 </resources>
