@@ -96,6 +96,7 @@ final class Recs {
     private volatile List<Pick> animePicks = new ArrayList<>();
     private volatile long animeAt, animeFailedAt;
     private volatile boolean animeFetching;
+    private volatile int animeOffset;   // first title shown in the Anime tab (moves by 3)
     private static final long ANIME_EVERY = 10 * 60_000L, ANIME_RETRY = 2 * 60_000L;
     private static final java.util.regex.Pattern EPISODE = java.util.regex.Pattern.compile("season=(\\d+)&episode=(\\d+)");
 
@@ -193,9 +194,10 @@ final class Recs {
     /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
         List<Pick> list = new ArrayList<>();
-        if ("anime".equals(kind)) {   // the catalog's newest three; no TMDB key needed
+        if ("anime".equals(kind)) {   // three of the catalog at a time, newest first; no TMDB key needed
             List<Pick> all = animePicks;
-            return new ArrayList<>(all.subList(0, Math.min(3, all.size())));
+            int from = animeOffset < all.size() ? animeOffset : 0;
+            return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
         }
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
@@ -256,6 +258,14 @@ final class Recs {
         return new File(new File(context.getCacheDir(), "recs"), name);
     }
 
+    /** Pages the Anime tab forward (1) or back (-1) by three titles. False at either end. */
+    boolean animePage(int dir) {
+        int next = animeOffset + 3 * dir;
+        if (next < 0 || next >= animePicks.size()) return false;
+        animeOffset = next;
+        return true;
+    }
+
     private void refreshCatalog() {
         if (!hasCatalog() || animeFetching) return;
         long now = System.currentTimeMillis();
@@ -269,6 +279,7 @@ final class Recs {
                 List<Pick> list = parseCatalog(raw);
                 if (list.isEmpty()) throw new IOException("the catalog has no titles with an image");
                 animePicks = list;
+                if (animeOffset >= list.size()) animeOffset = 0;
                 animeAt = System.currentTimeMillis();
                 animeFailedAt = 0;
                 cache.edit().putString("anime", raw).apply();

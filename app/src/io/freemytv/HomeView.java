@@ -2348,7 +2348,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 break;
             case Z_CARDS:
                 if (dx != 0) {
-                    int next = Math.max(0, Math.min(cards.size() - 1, cardIndex + dx));
+                    int next = cardIndex + dx;
+                    if ("anime".equals(TAB_KIND[tab]) && (next < 0 || next >= cards.size())) {
+                        // Past the last (or first) card of the Anime tab: the next three titles of the catalog.
+                        if (!recs.animePage(dx)) return true;
+                        updateCards();
+                        cardIndex = dx > 0 ? 0 : Math.max(0, cards.size() - 1);
+                        retarget(false);
+                        click.move();
+                        return true;
+                    }
+                    next = Math.max(0, Math.min(cards.size() - 1, next));
                     if (next == cardIndex) return true;
                     cardIndex = next;
                 } else if (dy < 0) {
