@@ -79,9 +79,33 @@ final class Prefs {
 
     static void setTmdbKey(String key) { put("tmdb_key", key.trim()); }
 
-    static String city() { return Config.CITY.trim(); }
-    static String latitude() { return Config.LATITUDE; }
-    static String longitude() { return Config.LONGITUDE; }
+    // Where the weather is for: set on the TV (Settings > TMDB Key and Location) or from the computer; else config.properties.
+    static String city() { return app != null && sp().contains("city") ? sp().getString("city", "").trim() : Config.CITY.trim(); }
+    static String latitude() { return placeOr("latitude", Config.LATITUDE); }
+    static String longitude() { return placeOr("longitude", Config.LONGITUDE); }
+
+    private static String placeOr(String key, String fallback) {
+        String v = app == null ? "" : sp().getString(key, "").trim();
+        return v.isEmpty() ? fallback : v;
+    }
+
+    /** Saves the place; a latitude or longitude that is not a number is left out. */
+    static void setPlace(String city, String lat, String lon) {
+        SharedPreferences.Editor e = sp().edit().putString("city", city.trim());
+        if (isCoordinate(lat, 90)) e.putString("latitude", lat.trim());
+        if (isCoordinate(lon, 180)) e.putString("longitude", lon.trim());
+        e.apply();
+        version++;
+    }
+
+    static boolean isCoordinate(String v, double max) {
+        try {
+            double d = Double.parseDouble(v.trim());
+            return Math.abs(d) <= max;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
 
     // MARK: - Widgets and coins
 

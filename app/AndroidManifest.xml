@@ -72,6 +72,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Settings > TMDB Key and Location: plain text fields. -->
+        <activity
+            android:name=".KeyActivity"
+            android:process=":home"
+            android:exported="false"
+            android:label="Free My TV"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:theme="@style/FreeMyTV.Home" />
+
         <!-- The home screen. Its own process (:home): if it ever crashes, the safety net in the main process still
              works. It only becomes the TV's home screen in Free My TV mode (cmd package set-home-activity). -->
         <activity
