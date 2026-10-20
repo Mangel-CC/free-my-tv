@@ -85,8 +85,9 @@ TVs that don't run Google TV or Android TV (Samsung, LG and others): the way is 
   isn't obvious.
 - Settings come from `config.properties` through the generated `out/gen/io/freemytv/Config.java` (never edit that).
   What the person changes on the TV (`Prefs`: Home Settings, Shelf, Remote Buttons) wins over those first values.
-- The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use TCL's key codes: they run only on TCL TVs, the
-  service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility services.
+- The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use TCL's and Hisense's key codes: they run only on those
+  brands (on Hisense the streaming buttons are fixed in `RemoteKeys`, apps found by their name), the service is on only
+  in Free My TV mode, and *Original* takes it out of the enabled accessibility services.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 
 ## Always

@@ -101,20 +101,15 @@ final class HomeMode {
 
     /**
      * The remote's app buttons (RemoteKeys) need an accessibility service that only filters those keys. It is on only
-     * on TCL TVs in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
+     * on TCL and Hisense TVs in Free My TV mode, and goes off with Original. Android turns it off when this app is updated, so the
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (needsService()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
-    }
-
-    /** The service filters the TCL app buttons and, with custom_volume, the volume keys. */
-    private static boolean needsService() {
-        return RemoteKeys.supported() || Config.CUSTOM_VOLUME;
+        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
     }
 
     static void ensureRemoteServiceNow(Context app) {
-        if (!needsService() || !FREE.equals(state(app).optString("mode"))) return;
+        if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, true);
         } catch (IOException e) {
@@ -218,7 +213,7 @@ final class HomeMode {
             s.put("mode", FREE).put("since", System.currentTimeMillis()).put("homeReverted", false)
                     .put("disabled", new JSONArray(sorted(disabled)));
             save(c, s);
-            if (needsService()) {
+            if (RemoteKeys.supported()) {
                 try {
                     remoteService(c, adb, true);
                 } catch (IOException e) {
