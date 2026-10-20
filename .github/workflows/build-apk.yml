@@ -1,0 +1,32 @@
+name: Build APK
+
+# Builds FreeMyTV.apk with build.sh. Run it by hand (Actions > Build APK > Run workflow) or push to the volume branch.
+# No TMDB key goes in: the APK is public to anyone who can open the run. The signing key is new on every run.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-13d4b73c-qi4t5q]
+    paths: ['app/**', 'build.sh', '.github/workflows/build-apk.yml']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0" "platforms;android-34" >/dev/null
+      - name: Settings
+        run: |
+          cp config.example.properties config.properties
+          sed -i 's/^custom_volume=.*/custom_volume=true/' config.properties
+      - run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeMyTV-apk
+          path: FreeMyTV.apk
