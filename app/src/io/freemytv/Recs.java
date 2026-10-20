@@ -54,7 +54,7 @@ final class Recs {
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 5;
+    private static final int CACHE_VERSION = 6;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     static final String[] PERIOD_LABEL = {"PARA ESTA MANHÃ", "PARA ESTA TARDE", "PARA ESTA NOITE"};
     static final String[] PERIOD_LABEL_EN = {"THIS MORNING", "THIS AFTERNOON", "TONIGHT"};
@@ -64,6 +64,8 @@ final class Recs {
      * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
      */
     private static final String CATCH_ALL_APP = "Nuvio Chapters";
+    /** What the cards say (the app that opens them is a copy of Nuvio kept next to the original). */
+    private static final String CATCH_ALL_LABEL = "Nuvio";
 
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -88,7 +90,7 @@ final class Recs {
         SERVICE_NAME.put("globoplay", "Globoplay");
         SERVICE_NAME.put("max", "Max");
         SERVICE_NAME.put("appletv", "Apple TV");
-        SERVICE_NAME.put("catchall", CATCH_ALL_APP);
+        SERVICE_NAME.put("catchall", CATCH_ALL_LABEL);
     }
     /** Country for "what streams where" (config.properties "tmdb_region", e.g. US, GB, BR). */
     private static final String REGION = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
@@ -114,6 +116,8 @@ final class Recs {
     private final Context context;
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    // Pictures (small cards, backgrounds) load on their own threads: they never wait behind the list and details job.
+    private final ExecutorService imageIo = Executors.newFixedThreadPool(2);
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
     private final Map<String, Backdrop> images = new LinkedHashMap<>();   // this hour's, built and ready to draw
@@ -253,7 +257,7 @@ final class Recs {
             if (b != null) return b;
             if (!pending.add(key)) return null;
         }
-        io.execute(() -> {
+        imageIo.execute(() -> {
             try {
                 loadImage(p);
             } finally {
@@ -270,9 +274,11 @@ final class Recs {
         synchronized (smalls) {
             Bitmap b = smalls.get(key);
             if (b != null) return b;
+            Long failed = smallFailed.get(key);
+            if (failed != null && System.currentTimeMillis() - failed < 60_000L) return null;
             if (!smallPending.add(key)) return null;
         }
-        io.execute(() -> {
+        imageIo.execute(() -> {
             try {
                 loadSmall(p);
             } finally {
@@ -284,6 +290,7 @@ final class Recs {
 
     private final Map<String, Bitmap> smalls = new LinkedHashMap<>();   // the row's cards (small: all of them stay in memory)
     private final java.util.Set<String> smallPending = new java.util.HashSet<>();
+    private final Map<String, Long> smallFailed = new HashMap<>();
 
     private void loadSmall(Pick p) {
         File f = imageFile(p);
@@ -296,7 +303,11 @@ final class Recs {
             opts.inSampleSize = 1;
             while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.SMALL_W * 2) opts.inSampleSize *= 2;
             Bitmap src = BitmapFactory.decodeFile(f.getPath(), opts);
-            if (src == null) throw new IOException("unreadable image");
+            if (src == null) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();   // a damaged file: downloaded again next time
+                throw new IOException("unreadable image");
+            }
             Bitmap small = Backdrop.smallCard(src);
             synchronized (smalls) {
                 smalls.put(p.backdrop, small);
@@ -304,8 +315,7 @@ final class Recs {
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
-            //noinspection ResultOfMethodCallIgnored
-            f.delete();
+            synchronized (smalls) { smallFailed.put(p.backdrop, System.currentTimeMillis()); }
             AppLog.w("small card: " + (p.backdrop.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
         }
     }
@@ -367,7 +377,7 @@ final class Recs {
             String meta = "Anime";
             java.util.regex.Matcher m = EPISODE.matcher(o.optString("poster", ""));
             if (m.find()) meta += " · T" + m.group(1) + " E" + m.group(2);   // season and latest episode
-            p.meta = meta + " · " + CATCH_ALL_APP;
+            p.meta = meta + " · " + CATCH_ALL_LABEL;
             out.add(p);
         }
         return out;
@@ -399,7 +409,7 @@ final class Recs {
         boolean stale = newKey || p != period || now - listAt > LIST_EVERY || now < listAt || picks.isEmpty()
                 || !listLanguage.equals(Ui.language);
         boolean missing = false;
-        for (Pick pick : wanted()) missing |= !pick.detailed || !hasImage(pick);
+        for (Pick pick : wanted()) missing |= !pick.detailed;
         if (!stale && !missing) return;
         keyStamp = stamp;
         fetching = true;
@@ -412,8 +422,7 @@ final class Recs {
                 for (Pick pick : wanted()) {
                     tried++;
                     try {
-                        if (!pick.detailed) fetchDetails(pick);
-                        if (pick.pkg != null) download(pick);
+                        if (!pick.detailed) fetchDetails(pick);   // the pictures load when a card is drawn
                     } catch (Exception e) {
                         failures++;
                         last = e.getMessage() == null ? e.toString() : e.getMessage();
@@ -753,6 +762,12 @@ final class Recs {
 
     private void download(Pick p) throws IOException {
         File f = imageFile(p);
+        synchronized (("download:" + f.getName()).intern()) {   // the same picture is asked by several threads
+            downloadLocked(p, f);
+        }
+    }
+
+    private void downloadLocked(Pick p, File f) throws IOException {
         if (f.exists()) return;
         //noinspection ResultOfMethodCallIgnored
         f.getParentFile().mkdirs();
@@ -797,8 +812,11 @@ final class Recs {
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
-            //noinspection ResultOfMethodCallIgnored
-            f.delete();
+            // Only a damaged file goes (a network or memory error leaves the good file for the other threads).
+            if (e instanceof IOException && "unreadable image".equals(e.getMessage())) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();
+            }
             // A catalog image URL carries a key: an exception message can quote it, so only its type is logged.
             AppLog.w("recommendation image: " + (p.backdrop.startsWith("https://") ? e.getClass().getSimpleName() : e.getMessage()));
         }
