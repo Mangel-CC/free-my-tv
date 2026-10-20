@@ -21,7 +21,7 @@ import java.util.Locale;
  * Hisense's (read with the diagnostic build); a key not listed here goes on as if we weren't here.
  */
 public class ButtonsService extends AccessibilityService {
-    private static final int NETFLIX = 265, PRIME = 295, YOUTUBE = 293;
+    private static final int NETFLIX = 265, PRIME = 295, YOUTUBE = 293, DISNEY = 607, TUBI = 606;
 
     private VolumeBar volume;
 
@@ -29,28 +29,33 @@ public class ButtonsService extends AccessibilityService {
         if (volume == null) volume = new VolumeBar(this);
         if (volume.onKey(e)) return true;
         int code = e.getKeyCode();
-        if (code != NETFLIX && code != PRIME && code != YOUTUBE) return false;
+        if (code != NETFLIX && code != PRIME && code != YOUTUBE && code != DISNEY && code != TUBI) return false;
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
-            if (code == NETFLIX) openApp("Nuvio");
+            if (code == NETFLIX) openApp("Nuvio Chapters");
+            else if (code == DISNEY) openApp("Nuvio");
+            else if (code == TUBI) openApp("Spotify");
             else if (code == YOUTUBE) openApp("SmartTube");
             else if (!openHdmi("3")) openApp("Spotify");
         }
         return true;   // down and up are ours, so the TV's own action never runs
     }
 
-    /** Opens the installed app whose name contains this text (so we don't need its package name). */
+    /** Opens the installed app with this name: the exact name first, then one that contains it ("Nuvio" vs "Nuvio Chapters"). */
     private void openApp(String name) {
         PackageManager pm = getPackageManager();
         String want = name.toLowerCase(Locale.ROOT);
-        for (String category : new String[] {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
-            List<ResolveInfo> apps = pm.queryIntentActivities(
-                    new Intent(Intent.ACTION_MAIN).addCategory(category), 0);
-            for (ResolveInfo ri : apps) {
-                if (!ri.loadLabel(pm).toString().toLowerCase(Locale.ROOT).contains(want)) continue;
-                startActivity(new Intent(Intent.ACTION_MAIN).addCategory(category)
-                        .setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                return;
+        for (boolean exact : new boolean[] {true, false}) {
+            for (String category : new String[] {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+                List<ResolveInfo> apps = pm.queryIntentActivities(
+                        new Intent(Intent.ACTION_MAIN).addCategory(category), 0);
+                for (ResolveInfo ri : apps) {
+                    String label = ri.loadLabel(pm).toString().trim().toLowerCase(Locale.ROOT);
+                    if (exact ? !label.equals(want) : !label.contains(want)) continue;
+                    startActivity(new Intent(Intent.ACTION_MAIN).addCategory(category)
+                            .setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    return;
+                }
             }
         }
         Toast.makeText(this, name + ": app not found", Toast.LENGTH_LONG).show();
