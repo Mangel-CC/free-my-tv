@@ -23,24 +23,24 @@ import android.graphics.Shader;
  */
 final class Backdrop {
     static final int W = 1920, H = 1080, FW = 192, FH = 108, GW = 480, GH = 270;
-    /** The cards at their focused size (1.05×): the wide one and the two tall ones. */
-    static final int WIDE_W = 1092, WIDE_H = 464, TALL_W = 336, TALL_H = 464;
+    /** The hero picture (it fades into the background on the left and at the bottom) and the row's 16:9 cards. */
+    static final int HERO_W = 1152, HERO_H = 594, SMALL_W = 336, SMALL_H = 189;
     final Bitmap image;
     final int[] frost;      // heavily blurred (frosted glass, bottom drawer)
     final int[] glass;      // lightly blurred (Liquid Glass: the photo shows through the glass)
-    final Bitmap wide, tall;            // the photo on the cards
+    final Bitmap hero, small;           // the hero picture and the small card
     final int[] light, lightGlass;      // by day: the frosted and glass versions, lightened
     final Bitmap lightImage;            // by day: the background (the lightened frosted version, scaled up on screen)
     final int[] nightFrost, nightGlass; // at night: frosted (the bottom drawer's frosted glass) and glass, darkened
     final Bitmap nightImage;            // at night: the background (the darkened frosted version)
 
-    private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap wide, Bitmap tall, int[] light, int[] lightGlass,
+    private Backdrop(Bitmap image, int[] frost, int[] glass, Bitmap hero, Bitmap small, int[] light, int[] lightGlass,
                      int[] night, int[] nightGlass) {
         this.image = image;
         this.frost = frost;
         this.glass = glass;
-        this.wide = wide;
-        this.tall = tall;
+        this.hero = hero;
+        this.small = small;
         this.light = light;
         this.lightGlass = lightGlass;
         this.nightFrost = night;
@@ -59,7 +59,7 @@ final class Backdrop {
         src.recycle();
         if (forLight) {
             // Light design: everything comes from the photo without scrims.
-            Bitmap wide = card(out, WIDE_W, WIDE_H), tall = card(out, TALL_W, TALL_H);
+            Bitmap hero = heroCard(out, HERO_W, HERO_H), small = card(out, SMALL_W, SMALL_H);
             int[] frost = reduce(out, FW, FH, 3, 3);
             int[] light = whiten(frost.clone(), 0.82f);
             int[] glass = reduce(out, GW, GH, 2, 2);
@@ -67,7 +67,7 @@ final class Backdrop {
             int[] night = darken(frost.clone(), 0.76f);
             int[] nightGlass = darken(glass, 0.56f);
             out.recycle();
-            return new Backdrop(null, frost, null, wide, tall, light, lightGlass, night, nightGlass);
+            return new Backdrop(null, frost, null, hero, small, light, lightGlass, night, nightGlass);
         }
 
         float boost = Math.max(0, Math.min(0.3f, (luminance(out, 0, 0.22f, 0.5f, 0.62f) - 0.22f) * 1.1f));
@@ -142,6 +142,26 @@ final class Backdrop {
     }
 
     /** The center of the photo at the card's aspect ratio, filtered down (halving while possible) to the exact size. */
+    /** Center-cropped to w × h, with its left and bottom edges faded to transparent (it melts into the background). */
+    private static Bitmap heroCard(Bitmap full, int w, int h) {
+        Bitmap b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float ratio = (float) w / h;
+        int cw = Math.min(full.getWidth(), Math.round(full.getHeight() * ratio));
+        int ch = Math.min(full.getHeight(), Math.round(cw / ratio));
+        android.graphics.Rect src = new android.graphics.Rect((full.getWidth() - cw) / 2, (full.getHeight() - ch) / 2,
+                (full.getWidth() + cw) / 2, (full.getHeight() + ch) / 2);
+        c.drawBitmap(full, src, new android.graphics.Rect(0, 0, w, h), new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG));
+        Paint mask = new Paint(Paint.DITHER_FLAG);
+        mask.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        mask.setShader(new LinearGradient(0, 0, w * 0.6f, 0, new int[] {0x00000000, 0x55000000, 0xFF000000},
+                new float[] {0, 0.4f, 1}, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, w, h, mask);
+        mask.setShader(new LinearGradient(0, h * 0.5f, 0, h, 0xFF000000, 0x00000000, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, w, h, mask);
+        return gpu(b);
+    }
+
     private static Bitmap card(Bitmap full, int w, int h) {
         float ratio = (float) w / h;
         int cw = Math.min(full.getWidth(), Math.round(full.getHeight() * ratio));

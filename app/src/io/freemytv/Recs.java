@@ -191,27 +191,16 @@ final class Recs {
         return now(null);
     }
 
-    /** This hour's titles for a tab, three at a time (a page): movies only ("movie"), shows only ("tv"), "anime", or null = both. */
+    /** This hour's first 3 for a tab ("movie", "tv", "anime"; null = both). */
     List<Pick> now(String kind) {
+        List<Pick> all = all(kind);
+        return new ArrayList<>(all.subList(0, Math.min(3, all.size())));
+    }
+
+    /** The titles of a tab (up to 10), the first being this hour's: the row of the home screen. */
+    List<Pick> all(String kind) {
         List<Pick> all = ordered(kind);
-        int from = pageOffset(kind, all.size());
-        return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
-    }
-
-    private final Map<String, Integer> pageAt = new HashMap<>();
-
-    private int pageOffset(String kind, int size) {
-        Integer v = pageAt.get(String.valueOf(kind));
-        return v != null && v < size ? v : 0;
-    }
-
-    /** Pages a tab forward (1) or back (-1) by three titles. False at either end. */
-    boolean page(String kind, int dir) {
-        int size = ordered(kind).size();
-        int next = pageOffset(kind, size) + 3 * dir;
-        if (next < 0 || next >= size) return false;
-        pageAt.put(String.valueOf(kind), next);
-        return true;
+        return new ArrayList<>(all.subList(0, Math.min(10, all.size())));
     }
 
     /** All the titles of a tab, the first being this hour's; never two from the same franchise. */
@@ -473,8 +462,8 @@ final class Recs {
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
+        for (String kind : new String[] {null, "movie", "tv", "anime"}) {
+            for (Pick p : all(kind)) if (seen.add(key(p))) out.add(p);
         }
         return out;
     }
@@ -757,7 +746,7 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 16 : 4)) images.remove(images.keySet().iterator().next());
+                while (images.size() > (forLight ? 14 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
