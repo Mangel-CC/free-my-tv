@@ -14,6 +14,20 @@ import android.os.PersistableBundle;
  */
 public class ModeJob extends JobService {
     static final String APPLY = "apply", VERIFY = "verify", REVERT = "revert", MEMORY = "memory", REMOTE = "remote";
+    /** REMOTE with this mode also restarts the buttons service if Android left it enabled but not connected. */
+    static final String CHECK = "check";
+    private static final int WATCH_ID = 998;
+
+    /** Every 15 minutes (kept across reboots): the buttons service check. Scheduled once, so the period isn't reset. */
+    static void watchRemote(Context c) {
+        JobScheduler scheduler = c.getSystemService(JobScheduler.class);
+        if (scheduler == null || scheduler.getPendingJob(WATCH_ID) != null) return;
+        PersistableBundle extras = new PersistableBundle();
+        extras.putString("action", REMOTE);
+        extras.putString("mode", CHECK);
+        scheduler.schedule(new JobInfo.Builder(WATCH_ID, new ComponentName(c, ModeJob.class)).setExtras(extras)
+                .setPeriodic(15 * 60_000L).setPersisted(true).build());
+    }
 
     @Override public boolean onStartJob(JobParameters params) {
         PersistableBundle extras = params.getExtras();
@@ -27,7 +41,7 @@ public class ModeJob extends JobService {
                     case VERIFY: HomeMode.verifyNow(app); break;
                     case REVERT: HomeMode.revertHomeNow(app); break;
                     case MEMORY: HomeMode.measureMemoryNow(app, mode); break;
-                    case REMOTE: HomeMode.ensureRemoteServiceNow(app); break;
+                    case REMOTE: HomeMode.ensureRemoteServiceNow(app, CHECK.equals(mode)); break;
                     default: break;
                 }
             } catch (Throwable t) {

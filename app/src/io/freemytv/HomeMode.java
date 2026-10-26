@@ -105,16 +105,54 @@ final class HomeMode {
      * boot check and an update turn it back on.
      */
     static void ensureRemoteService(Context c, long delayMs) {
-        if (RemoteKeys.supported()) ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        if (!RemoteKeys.supported()) return;
+        ModeJob.schedule(c, ModeJob.REMOTE, null, delayMs);
+        ModeJob.watchRemote(c);
     }
 
-    static void ensureRemoteServiceNow(Context app) {
+    private static long lastWatch;
+
+    /** From the home screen (:home process): soon after it shows, check that the buttons service is connected. */
+    static void checkRemoteService(Context c) {
+        long now = SystemClock.elapsedRealtime();
+        if (!RemoteKeys.supported() || now - lastWatch < 120_000) return;
+        lastWatch = now;
+        ModeJob.schedule(c, ModeJob.REMOTE, ModeJob.CHECK, 3_000);
+    }
+
+    static void ensureRemoteServiceNow(Context app, boolean check) {
         if (!RemoteKeys.supported() || !FREE.equals(state(app).optString("mode"))) return;
         try (Adb adb = Adb.connect(app, 10_000, null)) {
             remoteService(app, adb, true);
+            if (check) rebindIfStuck(adb);
         } catch (IOException e) {
             AppLog.w("remote buttons service: " + e.getMessage());
         }
+    }
+
+    /**
+     * Android can leave the service enabled but never started ("Binding" and never "Bound"); then the buttons and the
+     * volume bar do nothing until the app restarts. Force-stopping the app also takes the service out of the enabled
+     * list, so the fix runs detached on the TV: it outlives the stop, puts the service back and, if our home screen was
+     * showing, brings it back.
+     */
+    private static void rebindIfStuck(Adb adb) throws IOException {
+        String bound = adb.shell("dumpsys accessibility | grep 'Bound services'");
+        if (!bound.contains("Bound services") || bound.contains("label=Free My TV")) return;
+        String enabled = adb.shell("settings get secure enabled_accessibility_services").trim();
+        if (!enabled.contains(REMOTE_SERVICE)) return;
+        for (String one : enabled.split(":")) if (!SERVICE.matcher(one).matches()) return;   // only plain names go into the shell
+        // Right after the stop Android ignores the setting: it takes a quiet process (the receiver starts one without a
+        // screen) and the setting changed from nothing to the list, retried until "Bound" shows (usually the 1st or 2nd).
+        String fix = "R=$(dumpsys activity activities | grep -c 'mResumedActivity.*" + PKG + "'); am force-stop " + PKG
+                + "; sleep 2; am broadcast -n " + PKG + "/.ConfigReceiver; i=0; while [ $i -lt 4 ]; do sleep 3;"
+                + " settings delete secure enabled_accessibility_services; sleep 2;"
+                + " settings put secure enabled_accessibility_services '" + enabled + "';"
+                + " settings put secure accessibility_enabled 1; sleep 5;"
+                + " dumpsys accessibility | grep 'Bound services' | grep -q 'label=Free My TV' && break; i=$((i+1)); done;"
+                + " if [ \"$R\" != 0 ]; then am start -a android.intent.action.MAIN -c android.intent.category.HOME; fi";
+        AppLog.w("remote buttons service was not connected: restarting it");
+        adb.shell("nohup sh -c '" + fix.replace("'", "'\\''") + "' >/dev/null 2>&1 &");
     }
 
     private static final String REMOTE_SERVICE = PKG + "/" + PKG + ".RemoteKeyService";

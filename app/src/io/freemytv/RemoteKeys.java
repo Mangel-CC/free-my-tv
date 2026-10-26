@@ -34,7 +34,7 @@ final class RemoteKeys {
         return "TCL".equalsIgnoreCase(Build.MANUFACTURER) || "TCL".equalsIgnoreCase(Build.BRAND);
     }
 
-    private static boolean hisense() {
+    static boolean hisense() {
         String names = (Build.MANUFACTURER + " " + Build.BRAND + " " + Build.PRODUCT + " " + Build.DEVICE)
                 .toLowerCase(Locale.ROOT);
         return names.contains("hisense");

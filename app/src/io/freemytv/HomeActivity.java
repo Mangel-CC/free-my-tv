@@ -49,6 +49,7 @@ public class HomeActivity extends Activity {
             return;
         }
         if (home != null) home.resume();
+        HomeMode.checkRemoteService(this);
     }
 
     @Override protected void onPause() {
