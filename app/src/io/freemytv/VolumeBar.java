@@ -11,6 +11,7 @@ import android.graphics.RectF;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -105,8 +106,21 @@ final class VolumeBar {
         handler.postDelayed(pendingShow, 300);
     }
 
-    /** Hisense's SystemUI shows its own bar for any volume change, flags or not: close it as soon as it opens. */
-    private final Runnable closeSystem = this::sendClose;
+    /**
+     * Hisense's SystemUI shows its own bar for any volume change, flags or not. It opens about 0.3 s after the change
+     * and ignores a close for its first ~0.5 s, so a few closes at fixed moments miss it: while changes keep coming
+     * (and 1.5 s after the last one) we send a close every 60 ms.
+     */
+    private static final long CLOSE_EVERY_MS = 60, CLOSE_AFTER_LAST_MS = 1_500;
+    private long closeUntil;
+    private boolean closing;
+    private final Runnable closeSystem = new Runnable() {
+        @Override public void run() {
+            sendClose();
+            if (SystemClock.uptimeMillis() < closeUntil) handler.postDelayed(this, CLOSE_EVERY_MS);
+            else closing = false;
+        }
+    };
 
     @SuppressWarnings("deprecation")
     private void sendClose() {
@@ -114,8 +128,10 @@ final class VolumeBar {
     }
 
     private void closeSystemBar() {
-        handler.removeCallbacks(closeSystem);
-        for (long delay : new long[] {0, 100, 250, 500, 900}) handler.postDelayed(closeSystem, delay);
+        closeUntil = SystemClock.uptimeMillis() + CLOSE_AFTER_LAST_MS;
+        if (closing) return;
+        closing = true;
+        handler.post(closeSystem);
     }
 
     private void show(boolean up) {
@@ -143,6 +159,7 @@ final class VolumeBar {
         handler.removeCallbacks(hider);
         handler.removeCallbacks(repeater);
         handler.removeCallbacks(closeSystem);
+        closing = false;
         if (bar == null) return;
         try { wm.removeView(bar); } catch (RuntimeException ignored) {}
         bar = null;
