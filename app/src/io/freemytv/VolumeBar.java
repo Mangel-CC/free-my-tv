@@ -1,7 +1,9 @@
 package io.freemytv;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -31,10 +33,38 @@ final class VolumeBar {
     private final Runnable hider = this::hide;
     private Bar bar;
 
+    private static final String VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION",
+            MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION", EXTRA_STREAM = "android.media.EXTRA_VOLUME_STREAM_TYPE";
+    private boolean lastUp;
+
+    /**
+     * With a soundbar on HDMI-ARC the real volume is the soundbar's: the TV sends it the key and it answers a moment
+     * later. So the bar waits for the system's own "volume changed" notice (the TV's bar shows the same numbers), and
+     * each notice is also when the TV opens its bar again, so that is when we close it.
+     */
+    private final BroadcastReceiver changed = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (i.getIntExtra(EXTRA_STREAM, -1) != AudioManager.STREAM_MUSIC) return;
+            handler.removeCallbacks(pendingShow);
+            closeSystemBar();
+            show(lastUp);
+        }
+    };
+    private final Runnable pendingShow = () -> show(lastUp);
+
     VolumeBar(Context c) {
         ctx = c;
         audio = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
         wm = (WindowManager) c.getSystemService(Context.WINDOW_SERVICE);
+        IntentFilter filter = new IntentFilter(VOLUME_CHANGED);
+        filter.addAction(MUTE_CHANGED);
+        c.registerReceiver(changed, filter, null, handler);
+    }
+
+    /** The service is going away: stop listening and take the bar off the screen. */
+    void release() {
+        try { ctx.unregisterReceiver(changed); } catch (RuntimeException ignored) {}
+        hide();
     }
 
     private static final long FIRST_REPEAT_MS = 400, REPEAT_MS = 120, MAX_HOLD_MS = 15_000;
@@ -66,10 +96,13 @@ final class VolumeBar {
     }
 
     private void step(boolean up) {
+        lastUp = up;
         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
                 up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER, 0);
         closeSystemBar();
-        show(up);
+        // If the system never reports a change (volume at its limit), show what we have after a moment.
+        handler.removeCallbacks(pendingShow);
+        handler.postDelayed(pendingShow, 300);
     }
 
     /** Hisense's SystemUI shows its own bar for any volume change, flags or not: close it as soon as it opens. */
@@ -77,12 +110,12 @@ final class VolumeBar {
 
     @SuppressWarnings("deprecation")
     private void sendClose() {
-        ctx.sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
+        ctx.sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS).addFlags(Intent.FLAG_RECEIVER_FOREGROUND));
     }
 
     private void closeSystemBar() {
         handler.removeCallbacks(closeSystem);
-        for (long delay : new long[] {0, 80, 200, 450}) handler.postDelayed(closeSystem, delay);
+        for (long delay : new long[] {0, 100, 250, 500, 900}) handler.postDelayed(closeSystem, delay);
     }
 
     private void show(boolean up) {

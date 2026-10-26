@@ -30,7 +30,8 @@ public class RemoteKeyService extends AccessibilityService {
     @Override public void onInterrupt() {}
 
     @Override public boolean onUnbind(Intent intent) {
-        if (volume != null) volume.hide();
+        if (volume != null) volume.release();
+        volume = null;
         return super.onUnbind(intent);
     }
 }
