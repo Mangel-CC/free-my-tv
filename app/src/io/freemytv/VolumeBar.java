@@ -1,6 +1,7 @@
 package io.freemytv;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
@@ -66,8 +67,22 @@ final class VolumeBar {
 
     private void step(boolean up) {
         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC,
-                up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER, 0);   // flags 0: no system panel
+                up ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER, 0);
+        closeSystemBar();
         show(up);
+    }
+
+    /** Hisense's SystemUI shows its own bar for any volume change, flags or not: close it as soon as it opens. */
+    private final Runnable closeSystem = this::sendClose;
+
+    @SuppressWarnings("deprecation")
+    private void sendClose() {
+        ctx.sendBroadcast(new Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));
+    }
+
+    private void closeSystemBar() {
+        handler.removeCallbacks(closeSystem);
+        for (long delay : new long[] {0, 80, 200, 450}) handler.postDelayed(closeSystem, delay);
     }
 
     private void show(boolean up) {
@@ -94,6 +109,7 @@ final class VolumeBar {
     void hide() {
         handler.removeCallbacks(hider);
         handler.removeCallbacks(repeater);
+        handler.removeCallbacks(closeSystem);
         if (bar == null) return;
         try { wm.removeView(bar); } catch (RuntimeException ignored) {}
         bar = null;
