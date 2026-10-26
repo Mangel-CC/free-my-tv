@@ -11,7 +11,6 @@ import android.graphics.RectF;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -107,20 +106,12 @@ final class VolumeBar {
     }
 
     /**
-     * Hisense's SystemUI shows its own bar for any volume change, flags or not. It opens about 0.3 s after the change
-     * and ignores a close for its first ~0.5 s, so a few closes at fixed moments miss it: while changes keep coming
-     * (and 1.5 s after the last one) we send a close every 60 ms.
+     * The TV's own bar opens on each report the soundbar sends back (up to ~0.6 s after a key) and every new report
+     * reopens it. A close forces the bar fully opaque before its 250 ms fade, so closing again and again keeps it
+     * visible: close once, CLOSE_AFTER_LAST_MS after the last change we heard of.
      */
-    private static final long CLOSE_EVERY_MS = 60, CLOSE_AFTER_LAST_MS = 1_500;
-    private long closeUntil;
-    private boolean closing;
-    private final Runnable closeSystem = new Runnable() {
-        @Override public void run() {
-            sendClose();
-            if (SystemClock.uptimeMillis() < closeUntil) handler.postDelayed(this, CLOSE_EVERY_MS);
-            else closing = false;
-        }
-    };
+    private static final long CLOSE_AFTER_LAST_MS = 150;
+    private final Runnable closeSystem = this::sendClose;
 
     @SuppressWarnings("deprecation")
     private void sendClose() {
@@ -128,10 +119,8 @@ final class VolumeBar {
     }
 
     private void closeSystemBar() {
-        closeUntil = SystemClock.uptimeMillis() + CLOSE_AFTER_LAST_MS;
-        if (closing) return;
-        closing = true;
-        handler.post(closeSystem);
+        handler.removeCallbacks(closeSystem);
+        handler.postDelayed(closeSystem, CLOSE_AFTER_LAST_MS);
     }
 
     private void show(boolean up) {
@@ -159,7 +148,6 @@ final class VolumeBar {
         handler.removeCallbacks(hider);
         handler.removeCallbacks(repeater);
         handler.removeCallbacks(closeSystem);
-        closing = false;
         if (bar == null) return;
         try { wm.removeView(bar); } catch (RuntimeException ignored) {}
         bar = null;
