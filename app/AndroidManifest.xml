@@ -114,9 +114,10 @@
             </intent-filter>
         </activity>
 
+        <!-- No android:process here: Android opens the screensaver's own screen (DreamActivity) in the app's main process,
+             and a service in :home made it crash (ClassCastException) so the TV hung until Home was pressed. -->
         <service
             android:name=".Screensaver"
-            android:process=":home"
             android:exported="true"
             android:label="Free My TV"
             android:permission="android.permission.BIND_DREAM_SERVICE">

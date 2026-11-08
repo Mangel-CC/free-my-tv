@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Safety net for the :home process (home screen and screensaver): each crash is recorded, and on the 3rd within 5 min
+ * Safety net for the home screen (:home) and the screensaver (main process): each crash is recorded, and on the 3rd within 5 min
  * the home screen goes back to the TV's original one (requested from the main process) and the app leaves a notice.
  * File: files/home-crashes.txt.
  */

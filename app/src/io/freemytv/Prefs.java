@@ -9,7 +9,8 @@ import java.util.Locale;
 
 /**
  * Settings changed on the TV itself (Free My TV > Settings). config.properties only gives the first
- * values; anything the user changes here wins. Read from the :home process (home screen, screensaver, settings).
+ * values; anything the user changes here wins. Read from the :home process (home screen, settings) and, for the
+ * screensaver, the main process, which only sees a change made while it was running after it restarts.
  */
 final class Prefs {
     private Prefs() {}
