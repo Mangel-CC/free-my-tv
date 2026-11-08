@@ -1,7 +1,8 @@
 name: Build APK
 
 # Builds FreeMyTV.apk with build.sh. Run it by hand (Actions > Build APK > Run workflow) or push to the volume branch.
-# No TMDB key goes in: the APK is public to anyone who can open the run. The signing key is kept in the Actions cache.
+# No TMDB key goes in: the APK is public to anyone who can open the run. The signing key comes from the
+# FREEMYTV_KEYSTORE_B64 repository secret (the Actions cache is only a fallback and expires).
 on:
   workflow_dispatch:
   push:
@@ -29,12 +30,25 @@ jobs:
           cp config.example.properties config.properties
           sed -i 's/^tmdb_region=.*/tmdb_region=MX/; s/^currency=.*/currency=MXN/; s/^temperature=.*/temperature=C/' config.properties
           sed -i 's#^catalog_url=.*#catalog_url=https://plugin.mangelcc.dev/catalog/series/animeflv-latest.json#' config.properties
-      - name: Signing key (kept between builds, so an update installs over the previous one)
+      - name: Signing key from the repository secret (the same on every build, so an update installs over the previous one)
+        env:
+          KEYSTORE_B64: ${{ secrets.FREEMYTV_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > freemytv.keystore
+            echo "Using the key from the FREEMYTV_KEYSTORE_B64 secret."
+          else
+            echo "No FREEMYTV_KEYSTORE_B64 secret: using the cached key, or making a new one."
+          fi
+      - name: Signing key cache (only without the secret; GitHub deletes a cache that goes 7 days unused)
+        if: hashFiles('freemytv.keystore') == ''
         uses: actions/cache@v4
         with:
           path: freemytv.keystore
           key: signing-key-v1
       - run: ./build.sh
+      - name: Certificate of this build (public: a build that installs over another has the same one)
+        run: keytool -printcert -jarfile FreeMyTV.apk | grep -E 'SHA256'
       - name: Publish the APK as a release (a direct download, no zip)
         env:
           GH_TOKEN: ${{ github.token }}
