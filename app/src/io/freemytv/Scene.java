@@ -51,9 +51,29 @@ final class Scene {
     private final Paint lensPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint shinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix lensMatrix = new Matrix();
-    private final RectF rimInner = new RectF(), shineRect = new RectF();
+    private final RectF shineRect = new RectF();
     private BitmapShader lensA, lensB;
     private Bitmap lensOfA, lensOfB;
+    // The sharp background photo (Backdrop.W × H), when there is one: the glass reads it, clear like Apple's, with just
+    // a touch of the blurred copy on top (FROST). Without it, the blurred copy alone.
+    private static final float FROST = 0.25f;
+    // The lens is a mesh (drawVertices, GPU from API 29): each vertex reads the photo from where a curved glass would
+    // bend it, so straight lines curve near the edge as through a real lens. Denser toward the edges, where it bends.
+    // Coarse on purpose: on this Android 11 GPU a ~13×6 dock mesh draws in 6 ms a frame, ~20×8 already took 19 ms.
+    private static final int MESH_MAX = 48;
+    private final float[] meshVerts = new float[(MESH_MAX + 1) * (MESH_MAX + 1) * 2];
+    private final float[] meshTexs = new float[meshVerts.length];
+    private final short[] meshIdx = new short[MESH_MAX * MESH_MAX * 6];
+    private final float[] meshCol = new float[MESH_MAX + 1];
+    private int meshFloats, meshIndices;
+    // Tinted glass: the photo's own color, saturated (the glass and its rim take the picture's hue, as tinted glass
+    // does). 0 = no color, when the picture is grey.
+    private static final float TINT_ALPHA = 0.22f, COLOR_RIM_ALPHA = 0.6f;
+    private int glassColor;
+    private final float[] hsv = new float[3];
+    private final Paint colorRim = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private BitmapShader photoA, photoB;
+    private Bitmap photoOfA, photoOfB;
     private boolean lensMixing;
     private float offsetX, offsetY, glassMix;
     private Shader shineUnit;
@@ -99,6 +119,8 @@ final class Scene {
         lh = Math.max(1, Math.round(h / 4f));
         auroraNode.setPosition(0, 0, lw, lh);
         shinePaint.setStrokeWidth(Math.max(1.5f, w / 1920f * 2.2f));
+        colorRim.setStyle(Paint.Style.STROKE);
+        colorRim.setStrokeWidth(Math.max(2f, w / 1920f * 3f));
         if (aurora != null) {
             aurora.setFloatUniform("res", w, h);
             aurora.setFloatUniform("layer", lw, lh);
@@ -180,6 +202,21 @@ final class Scene {
         liquid.setFloatUniform("imageScale", (float) Backdrop.GW / w, (float) Backdrop.GH / h);
     }
 
+    /**
+     * The sharp photos behind the glass (Android 11/12): `from` alone, or `from` fading into `to` by setGlassMix.
+     * null: no sharp photo (the blurred copy is used).
+     */
+    void setPhotos(Bitmap from, Bitmap to) {
+        if (from != photoOfA) {
+            photoOfA = from;
+            photoA = from == null ? null : new BitmapShader(from, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        }
+        if (to != photoOfB) {
+            photoOfB = to;
+            photoB = to == null ? null : new BitmapShader(to, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        }
+    }
+
     void setGlassMix(float t) {
         glassMix = Math.max(0, Math.min(1, t));
         if (liquid != null) liquid.setFloatUniform("mixB", glassMix);
@@ -235,22 +272,23 @@ final class Scene {
      */
     private void bitmapLiquid(Canvas c, RectF r, float radius, int tint, float tintAlpha, float band, float refraction,
                               float specular, float alpha) {
-        float half = Math.max(1, Math.min(r.width(), r.height()) / 2);
+        float hw = Math.max(1, r.width() / 2), hh = Math.max(1, r.height() / 2), half = Math.min(hw, hh);
         float rad = Math.min(radius, half);
         int a = Math.round(255 * Math.min(1, alpha));
-        float lens = 1 + Math.min(0.06f, refraction / half * 0.3f);
-        float b = Math.min(band, half * 0.7f);
-        if (b >= 1 && refraction > 0) {
-            // The whole panel with the rim's stronger bend, then the center over it with the plain lens: the rim shows
-            // around it, with no clip.
-            drawLens(c, r, rad, lens + Math.min(0.22f, refraction / half), a);
-            rimInner.set(r.left + b, r.top + b, r.right - b, r.bottom - b);
-            drawLens(c, rimInner, Math.max(0, rad - b), lens, a, r);
-        } else {
-            drawLens(c, r, rad, lens, a);
-        }
+        // In pixels at the panel's edge, the same on every side whatever the panel's size: the body draws the picture
+        // `grow` toward its center (a slight magnification), the very edge shows what is `pull` outside the glass.
+        // (One scale for both axes moved a wide panel's ends by ~100 px, which tore the rings apart.)
+        float grow = Math.min(refraction * 0.8f, half * 0.25f), pull = Math.min(refraction * 3, half * 0.45f);
+        float b = Math.max(1, Math.min(Math.max(band * 2.5f, half * 0.7f), half * 0.95f));
+        buildMesh(r, rad, scaleFor(hw, -grow), scaleFor(hh, -grow), b, refraction > 0 ? pull : 0);
+        drawLens(c, a, false);
+        if (photoA != null) drawLens(c, Math.round(a * FROST), true);
         flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.min(1, tintAlpha) * 0.5f * alpha));
         c.drawRoundRect(r, rad, rad, flatFill);
+        if (glassColor != 0) {
+            flatFill.setColor(Ui.alpha(glassColor, TINT_ALPHA * alpha));
+            c.drawRoundRect(r, rad, rad, flatFill);
+        }
         shaderMatrix.setScale(1, r.height());
         shaderMatrix.postTranslate(0, r.top);
         sheenUnit.setLocalMatrix(shaderMatrix);
@@ -263,32 +301,134 @@ final class Scene {
         shineUnit.setLocalMatrix(shaderMatrix);
         shinePaint.setAlpha(Math.round(255 * Math.min(1, (0.35f + specular) * alpha)));
         c.drawRoundRect(shineRect, Math.max(0, rad - inset), Math.max(0, rad - inset), shinePaint);
+        if (glassColor != 0) {
+            colorRim.setColor(Ui.alpha(glassColor, COLOR_RIM_ALPHA * alpha));
+            c.drawRoundRect(shineRect, Math.max(0, rad - inset), Math.max(0, rad - inset), colorRim);
+        }
     }
 
     /**
-     * The photo that is behind `r` on screen (the layer may be moved by the offset), scaled by `scale` about r's
-     * center; during a photo change, the next one on top by the mix.
+     * The glass color for a blurred picture: its average, saturated and brightened, fading out (in the alpha) as the
+     * picture gets grey. Smooth in every step: it is computed again on each frame of a photo change, and a threshold
+     * there made the color blink off and on while the blend of two hues passed through grey.
      */
-    private void drawLens(Canvas c, RectF r, float rad, float scale, int alpha) {
-        drawLens(c, r, rad, scale, alpha, r);
+    private int tintOf(int[] pixels) {
+        long r = 0, g = 0, b = 0;
+        for (int p : pixels) {
+            r += (p >> 16) & 0xFF;
+            g += (p >> 8) & 0xFF;
+            b += p & 0xFF;
+        }
+        int n = Math.max(1, pixels.length);
+        Color.colorToHSV(Color.rgb((int) (r / n), (int) (g / n), (int) (b / n)), hsv);
+        float t = Math.max(0, Math.min(1, (hsv[1] - 0.04f) / 0.16f)), strength = t * t * (3 - 2 * t);
+        if (strength <= 0) return 0;
+        hsv[1] = Math.min(1, 0.25f + hsv[1] * 1.8f);
+        hsv[2] = Math.max(0.55f, Math.min(0.9f, hsv[2] * 1.6f));
+        return Ui.alpha(Color.HSVToColor(hsv), strength);
     }
 
-    /** Draws in `r`, with the lens centered on `around` (the whole panel, when `r` is only its center). */
-    private void drawLens(Canvas c, RectF r, float rad, float scale, int alpha, RectF around) {
-        lensMatrix.setScale((float) w / Backdrop.GW, (float) h / Backdrop.GH);
-        lensMatrix.postTranslate(-offsetX, -offsetY);
-        lensMatrix.postScale(scale, scale, around.centerX(), around.centerY());
-        lensA.setLocalMatrix(lensMatrix);
-        lensPaint.setShader(lensA);
-        lensPaint.setAlpha(alpha);
-        c.drawRoundRect(r, rad, rad, lensPaint);
-        if (lensMixing && lensB != null && glassMix > 0.004f) {
-            lensB.setLocalMatrix(lensMatrix);
-            lensPaint.setShader(lensB);
-            lensPaint.setAlpha(Math.round(alpha * glassMix));
-            c.drawRoundRect(r, rad, rad, lensPaint);
+    /** The scale about a panel's center that makes its edge, `half` px away, show the picture `px` further out. */
+    private static float scaleFor(float half, float px) {
+        return half / (half + px);
+    }
+
+    /**
+     * The lens mesh over panel `r`: a grid, denser toward the edges, where each vertex reads the photo from the point a
+     * curved glass would show there. The body is magnified about the center (bodyX/Y, per axis so a wide panel's ends
+     * don't move), and within `b` px of the edge the picture is read up to `pull` px further inside, along the
+     * edge's normal, with a round-lens profile (steep at the very edge, flat where it meets the body): lines curve
+     * there, as through Nuvio's glass. The normal blends smoothly around the corners, so the bend has no seams.
+     */
+    private void buildMesh(RectF r, float rad, float bodyX, float bodyY, float b, float pull) {
+        int cols = Math.max(4, Math.min(MESH_MAX, Math.round(r.width() / 80)));
+        int rows = Math.max(4, Math.min(MESH_MAX, Math.round(r.height() / 40)));
+        float cx = r.centerX(), cy = r.centerY(), ix = r.width() / 2 - rad, iy = r.height() / 2 - rad;
+        // The texture says where to read: the inverse of the picture's scale (bodyX > 1 magnifies).
+        float readX = 1 / bodyX, readY = 1 / bodyY;
+        for (int i = 0; i <= cols; i++) meshCol[i] = r.left + r.width() * (0.5f - 0.5f * (float) Math.cos(Math.PI * i / cols));
+        int v = 0;
+        for (int j = 0; j <= rows; j++) {
+            float y0 = r.top + r.height() * (0.5f - 0.5f * (float) Math.cos(Math.PI * j / rows));
+            for (int i = 0; i <= cols; i++) {
+                float x = meshCol[i], y = y0;
+                float px = x - cx, py = y - cy, qx = Math.abs(px) - ix, qy = Math.abs(py) - iy;
+                float corner = (float) Math.sqrt(qx * qx + qy * qy);
+                if (qx > 0 && qy > 0 && corner > rad) {
+                    // Outside a rounded corner: onto its arc, so the mesh has the panel's shape and needs no clip
+                    // (a curved clip costs a mask on every draw).
+                    qx *= rad / corner;
+                    qy *= rad / corner;
+                    px = Math.signum(px) * (ix + qx);
+                    py = Math.signum(py) * (iy + qy);
+                    x = cx + px;
+                    y = cy + py;
+                }
+                float ox = Math.max(qx, 0), oy = Math.max(qy, 0);
+                float depth = rad - (float) Math.sqrt(ox * ox + oy * oy) - Math.min(Math.max(qx, qy), 0);
+                float sx = cx + px * readX, sy = cy + py * readY;
+                if (pull > 0 && depth < b) {
+                    float nx = Math.max(qx + b, 0), ny = Math.max(qy + b, 0), len = (float) Math.sqrt(nx * nx + ny * ny);
+                    if (len > 0) {
+                        float t = 1 - Math.max(0, depth) / b;
+                        float d = pull * (1 - (float) Math.sqrt(Math.max(0, 1 - t * t))) / len;
+                        // Inward: the edge shows what is just inside it, stretched and curved (as Nuvio's and
+                        // Apple's glass). Outward it read as a compressed strip, a second pane.
+                        sx -= Math.signum(px) * nx * d;
+                        sy -= Math.signum(py) * ny * d;
+                    }
+                }
+                meshVerts[v] = x;
+                meshVerts[v + 1] = y;
+                meshTexs[v] = sx;
+                meshTexs[v + 1] = sy;
+                v += 2;
+            }
         }
+        meshFloats = v;
+        int k = 0;
+        for (int j = 0; j < rows; j++) {
+            for (int i = 0; i < cols; i++) {
+                short p = (short) (j * (cols + 1) + i), q = (short) (p + cols + 1);
+                meshIdx[k++] = p;
+                meshIdx[k++] = (short) (p + 1);
+                meshIdx[k++] = q;
+                meshIdx[k++] = (short) (p + 1);
+                meshIdx[k++] = (short) (q + 1);
+                meshIdx[k++] = q;
+            }
+        }
+        meshIndices = k;
+    }
+
+    /**
+     * Draws the lens mesh with the picture behind it on screen (the layer may be moved by the offset): the sharp photo
+     * when there is one, else the blurred copy; `frost` draws the blurred copy (the touch of frost). During a photo
+     * change, the next one on top by the mix.
+     */
+    private void drawLens(Canvas c, int alpha, boolean frost) {
+        if (photoA != null && !frost) drawSource(c, alpha, photoA, photoB, Backdrop.W, Backdrop.H);
+        else drawSource(c, alpha, lensA, lensMixing ? lensB : null, Backdrop.GW, Backdrop.GH);
         lensPaint.setShader(null);
+    }
+
+    /** One picture (`sw` × `sh`, stretched to the screen) through the mesh, and `next` over it by the mix. */
+    private void drawSource(Canvas c, int alpha, BitmapShader first, BitmapShader next, int sw, int sh) {
+        if (first == null || alpha <= 0) return;
+        lensMatrix.setScale((float) w / sw, (float) h / sh);
+        lensMatrix.postTranslate(-offsetX, -offsetY);
+        first.setLocalMatrix(lensMatrix);
+        lensPaint.setShader(first);
+        lensPaint.setAlpha(alpha);
+        c.drawVertices(Canvas.VertexMode.TRIANGLES, meshFloats, meshVerts, 0, meshTexs, 0, null, 0, meshIdx, 0,
+                meshIndices, lensPaint);
+        if (next != null && glassMix > 0.004f) {
+            next.setLocalMatrix(lensMatrix);
+            lensPaint.setShader(next);
+            lensPaint.setAlpha(Math.round(alpha * glassMix));
+            c.drawVertices(Canvas.VertexMode.TRIANGLES, meshFloats, meshVerts, 0, meshTexs, 0, null, 0, meshIdx, 0,
+                    meshIndices, lensPaint);
+        }
     }
 
     /** The glass now reads the blurred background image (Backdrop.FW × FH, ARGB). */
@@ -296,6 +436,7 @@ final class Scene {
         if (frostImage == null) frostImage = Bitmap.createBitmap(Backdrop.FW, Backdrop.FH, Bitmap.Config.ARGB_8888);
         frostImage.setPixels(pixels, 0, Backdrop.FW, 0, 0, Backdrop.FW, Backdrop.FH);
         imageFrost = true;
+        glassColor = tintOf(pixels);
         if (glass == null) return;
         BitmapShader s = new BitmapShader(frostImage, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
         s.setFilterMode(BitmapShader.FILTER_MODE_LINEAR);

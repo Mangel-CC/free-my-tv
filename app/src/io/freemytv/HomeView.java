@@ -622,16 +622,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         if (drawerMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
-        // drop frames (measured: ~50 ms of GPU per frame). The app tiles have no glass; the top buttons fade out as
-        // they rise; the drawer is drawn resting in place; the glass shelf is redrawn once the drawer stops, so the
-        // glass shows the background where it ended up.
-        if (tilesMoving || tilesDirty) tiles.invalidate();
+        // drop frames (measured: ~50 ms of GPU per frame). The top buttons fade out as they rise; the drawer is drawn
+        // resting in place; the glass shelf, the apps dock and the tabs bar are redrawn once the drawer stops, so the
+        // glass shows the background where it ended up. Every layer with glass is redrawn while the photo changes:
+        // a cached layer keeps showing the old photo through its glass.
+        boolean drawerStopped = drawerWasMoving && !drawerMoving;
+        if (tilesMoving || tilesDirty || bgFading || drawerStopped) tiles.invalidate();
         if (statusMoving || statusDirty || bgFading) status.invalidate();
-        if (heroMoving || heroDirty || heroFading) heroLayer.invalidate();
+        if (heroMoving || heroDirty || heroFading || bgFading || drawerStopped) heroLayer.invalidate();
         if (drawerItemsMoving || drawerDirty || bgFading) drawerLayer.invalidate();
         if (gridMoving || gridDirty) sheetLayer.invalidate();
         if (drawerMoving || bgFading) sky.invalidate();
-        if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
+        if (bgFading || drawerStopped) platter.invalidate();
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
         if (updateClock()) {
@@ -788,8 +790,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (bgFrom == null || glassOf(bgFrom) == null) {
             scene.setFrost(frostOf(b));
             scene.setGlassImage(glassOf(b));
+            scene.setPhotos(b.image, null);
         } else {
             scene.setGlassImages(glassOf(bgFrom), glassOf(b));
+            scene.setPhotos(bgFrom.image, b.image);
         }
     }
 
@@ -810,6 +814,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         java.util.Arrays.fill(neutralGlassPx, color);
         scene.setFrost(neutralFrostPx);
         scene.setGlassImage(neutralGlassPx);
+        scene.setPhotos(null, null);
         nightPair = false;
     }
 
@@ -918,6 +923,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             } else {
                 scene.setFrost(frostOf(bgTo));
                 if (glassOf(bgTo) != null) scene.setGlassImage(glassOf(bgTo));
+                scene.setPhotos(bgTo.image, null);
             }
         }
         return true;
