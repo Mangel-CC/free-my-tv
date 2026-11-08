@@ -110,6 +110,16 @@ final class HomeMode {
         ModeJob.watchRemote(c);
     }
 
+    /**
+     * After an update of this app: Android kills the old process and marks the buttons service as crashed, still in the
+     * enabled list, and doesn't connect it again by itself. So check it is connected, not just listed.
+     */
+    static void checkRemoteServiceAfterUpdate(Context c) {
+        if (!RemoteKeys.supported()) return;
+        ModeJob.schedule(c, ModeJob.REMOTE, ModeJob.CHECK, 10_000);
+        ModeJob.watchRemote(c);
+    }
+
     private static long lastWatch;
 
     /** From the home screen (:home process): soon after it shows, check that the buttons service is connected. */
@@ -118,6 +128,7 @@ final class HomeMode {
         if (!RemoteKeys.supported() || now - lastWatch < 120_000) return;
         lastWatch = now;
         ModeJob.schedule(c, ModeJob.REMOTE, ModeJob.CHECK, 3_000);
+        ModeJob.watchRemote(c);   // the restart's force-stop cancels this app's jobs, the 15-minute check among them
     }
 
     static void ensureRemoteServiceNow(Context app, boolean check) {
@@ -144,7 +155,7 @@ final class HomeMode {
         for (String one : enabled.split(":")) if (!SERVICE.matcher(one).matches()) return;   // only plain names go into the shell
         // Right after the stop Android ignores the setting: it takes a quiet process (the receiver starts one without a
         // screen) and the setting changed from nothing to the list, retried until "Bound" shows (usually the 1st or 2nd).
-        String fix = "R=$(dumpsys activity activities | grep -c 'mResumedActivity.*" + PKG + "'); am force-stop " + PKG
+        String fix = "trap '' HUP; R=$(dumpsys activity activities | grep -c 'mResumedActivity.*" + PKG + "'); am force-stop " + PKG
                 + "; sleep 2; am broadcast -n " + PKG + "/.ConfigReceiver; i=0; while [ $i -lt 4 ]; do sleep 3;"
                 + " settings delete secure enabled_accessibility_services; sleep 2;"
                 + " settings put secure enabled_accessibility_services '" + enabled + "';"
@@ -152,7 +163,9 @@ final class HomeMode {
                 + " dumpsys accessibility | grep 'Bound services' | grep -q 'label=Free My TV' && break; i=$((i+1)); done;"
                 + " if [ \"$R\" != 0 ]; then am start -a android.intent.action.MAIN -c android.intent.category.HOME; fi";
         AppLog.w("remote buttons service was not connected: restarting it");
-        adb.shell("nohup sh -c '" + fix.replace("'", "'\\''") + "' >/dev/null 2>&1 &");
+        // Our ADB's "shell:" runs in a pty, and closing it hangs up everything still on it: plain `nohup … &` died
+        // before the first line. In its own session (setsid -d), ignoring the hang-up, with a second to detach first.
+        adb.shell("(setsid -d nohup sh -c '" + fix.replace("'", "'\\''") + "' </dev/null >/dev/null 2>&1 &); sleep 1");
     }
 
     private static final String REMOTE_SERVICE = PKG + "/" + PKG + ".RemoteKeyService";
@@ -172,7 +185,13 @@ final class HomeMode {
             }
             others.add(one);
         }
-        if (on == current.contains(REMOTE_SERVICE)) return;
+        if (on == current.contains(REMOTE_SERVICE)) {
+            // Listed, but accessibility switched off (seen after the app was updated): switch it back on.
+            if (on && !"1".equals(adb.shell("settings get secure accessibility_enabled").trim())) {
+                adb.shell("settings put secure accessibility_enabled 1");
+            }
+            return;
+        }
         List<String> list = new ArrayList<>(others);
         if (on) {
             JSONObject s = state(c);
