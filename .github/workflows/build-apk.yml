@@ -47,7 +47,7 @@ jobs:
           path: freemytv.keystore
           key: signing-key-v1
       - run: ./build.sh
-      - name: Certificate of this build (public: a build that installs over another has the same one)
+      - name: Certificate of this build (public, and the same on every build that installs over another)
         run: keytool -printcert -jarfile FreeMyTV.apk | grep -E 'SHA256'
       - name: Publish the APK as a release (a direct download, no zip)
         env:
