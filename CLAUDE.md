@@ -88,6 +88,9 @@ TVs that don't run Google TV or Android TV (Samsung, LG and others): the way is 
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use TCL's and Hisense's key codes: they run only on those
   brands (on Hisense the streaming buttons are fixed in `RemoteKeys`, apps found by their name), the service is on only
   in Free My TV mode, and *Original* takes it out of the enabled accessibility services.
+- The phone remote (`PhoneRemote`, `PhoneRemoteActivity`, `assets/remote.html`) is a web page the TV serves on port 8765,
+  off until the person turns it on. It runs in `:home`, started by `RemoteKeyService`. Keep it closed by default: fixed key
+  list, PIN pairing, private addresses only, and commands built only from that list, `textCommand` and installed apps.
 - After any change, `./build.sh` must end with `Built FreeMyTV.apk`.
 
 ## Always

@@ -326,7 +326,7 @@ public class SettingsActivity extends Activity {
                 case HOME_SETTINGS: return settingLabels().length;
                 case PICKER: return Math.min(PICK_VISIBLE, pickLabels.size());
                 case SHELF_EDIT: return Math.min(PICK_VISIBLE, shelfRows.size());
-                default: return Prefs.KEYS.length;
+                default: return Prefs.KEYS.length + 1;   // the buttons, then the phone remote
             }
         }
 
@@ -655,15 +655,17 @@ public class SettingsActivity extends Activity {
 
         private String[] keyLabels() {
             return new String[] {Ui.tr("Botão Netflix", "Netflix button"), Ui.tr("Botão YouTube", "YouTube button"),
-                    Ui.tr("Botão Prime Video", "Prime Video button"), Ui.tr("Botão TCL Channel", "TCL Channel button")};
+                    Ui.tr("Botão Prime Video", "Prime Video button"), Ui.tr("Botão TCL Channel", "TCL Channel button"),
+                    Ui.tr("Controle pelo celular", "Phone remote", "Mando desde el móvil")};
         }
 
         private String[] keyValues() {
-            String[] v = new String[Prefs.KEYS.length];
-            for (int i = 0; i < v.length; i++) {
+            String[] v = new String[Prefs.KEYS.length + 1];
+            for (int i = 0; i < Prefs.KEYS.length; i++) {
                 int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[i]));
                 v[i] = at >= 0 ? appLabels.get(at) : Ui.tr("Não instalado", "Not installed");
             }
+            v[Prefs.KEYS.length] = onOff(PhoneRemote.enabled(getContext()));
             return v;
         }
 
@@ -692,6 +694,7 @@ public class SettingsActivity extends Activity {
         /** Changes the focused row's value one step (OK and → go forward, ← goes back). */
         private void adjust(int dir) {
             if (screen == REMOTE_KEYS) {
+                if (focus >= Prefs.KEYS.length) return;   // the phone remote row opens its own screen
                 int n = appPkgs.size();
                 int at = appPkgs.indexOf(Prefs.keyApp(Prefs.KEYS[focus]));
                 int next = at < 0 ? (dir > 0 ? 0 : n - 1) : (at + dir + n) % n;
@@ -895,7 +898,8 @@ public class SettingsActivity extends Activity {
                 invalidate();
                 return;
             } else if (screen == REMOTE_KEYS) {
-                openPicker(focus + 1);
+                if (focus == Prefs.KEYS.length) activity.startActivity(new Intent(activity, PhoneRemoteActivity.class));
+                else openPicker(focus + 1);
             } else if (screen == HOME_SETTINGS) {
                 adjust(1);
                 invalidate();

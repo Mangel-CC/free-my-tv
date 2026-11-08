@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark light">
+<title>Free My TV</title>
+<style>
+:root {
+  --bg: #f2f3f7; --surface: #ffffff; --key: #e6e8ef; --key-down: #cfd3df; --fg: #14161d; --muted: #5d6477;
+  --accent: #3f5bd9; --on-accent: #ffffff; --line: #d6d9e3; --bad: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0e1016; --surface: #171a23; --key: #232734; --key-down: #343a4d; --fg: #eceef6; --muted: #98a0b6;
+          --accent: #8fa2ff; --on-accent: #0e1016; --line: #2a2f3f; --bad: #ff8a80; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { min-height: 100vh; padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+main { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 20px; margin: 0; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot.on { background: #2e9e5b; }
+.dot.off { background: var(--bad); }
+.muted { color: var(--muted); font-size: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+input[type=text], input[type=tel], input[type=search] {
+  width: 100%; font: inherit; font-size: 18px; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; min-width: 0;
+}
+input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button {
+  font: inherit; color: var(--fg); background: var(--key); border: 0; border-radius: 16px; min-height: 54px; padding: 0 14px;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: pointer;
+}
+button:active, button.down { background: var(--key-down); }
+button.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pad button { min-height: 68px; font-size: 26px; }
+.pad .ok { background: var(--accent); color: var(--on-accent); font-size: 18px; font-weight: 700; border-radius: 50%; }
+.row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.row.two { grid-template-columns: 1fr auto auto; }
+.apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; max-height: 46vh; overflow: auto; }
+.apps button { min-height: 48px; font-size: 15px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.error { color: var(--bad); font-size: 14px; min-height: 1.2em; }
+[hidden] { display: none !important; }
+.pin { letter-spacing: .5em; text-align: center; font-size: 28px !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Mando</h1>
+    <span class="dot" id="dot" title=""></span>
+  </header>
+
+  <section class="card" id="pairing" hidden>
+    <p id="pairText" class="muted" style="margin:0"></p>
+    <input id="pin" class="pin" type="tel" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="000000" aria-label="PIN">
+    <button class="primary" id="pairBtn"></button>
+    <div class="error" id="pairErr" role="alert"></div>
+  </section>
+
+  <section id="remote" hidden>
+    <div class="card">
+      <div class="pad" aria-label="Cruceta">
+        <span></span><button data-key="UP" data-repeat aria-label="Arriba">&#9650;</button><span></span>
+        <button data-key="LEFT" data-repeat aria-label="Izquierda">&#9664;</button>
+        <button data-key="OK" class="ok">OK</button>
+        <button data-key="RIGHT" data-repeat aria-label="Derecha">&#9654;</button>
+        <span></span><button data-key="DOWN" data-repeat aria-label="Abajo">&#9660;</button><span></span>
+      </div>
+      <div class="row">
+        <button data-key="BACK" id="kBack"></button>
+        <button data-key="HOME" id="kHome"></button>
+        <button data-key="MENU" id="kMenu"></button>
+      </div>
+      <div class="row">
+        <button data-key="VOLUME_DOWN" data-repeat aria-label="Volumen menos">&#128265; &minus;</button>
+        <button data-key="MUTE" id="kMute"></button>
+        <button data-key="VOLUME_UP" data-repeat aria-label="Volumen más">&#128266; +</button>
+      </div>
+      <div class="row">
+        <button data-key="REWIND" aria-label="Retroceder">&#9194;</button>
+        <button data-key="PLAY_PAUSE" aria-label="Reproducir o pausar">&#9199;</button>
+        <button data-key="FAST_FORWARD" aria-label="Adelantar">&#9193;</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="row two">
+        <input id="text" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="200">
+        <button class="primary" id="sendText"></button>
+        <button data-key="DELETE" data-repeat id="kDel" aria-label="Borrar">&#9003;</button>
+      </div>
+      <button data-key="ENTER" id="kEnter"></button>
+      <div class="error" id="textErr" role="alert"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <button id="appsBtn"></button>
+      <div id="appsBox" hidden>
+        <input id="appsFilter" type="search" autocomplete="off">
+        <div class="apps" id="apps" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <p class="muted" id="unpair" style="text-align:center;margin:18px 0 0"><a href="#" id="forget" style="color:inherit"></a></p>
+  </section>
+  <div class="error" id="status" role="status"></div>
+</main>
+
+<script>
+(function () {
+  var T = {
+    es: { title: "Mando", pair: "Escribe el PIN que muestra la TV en Free My TV, Botones del control, Mando desde el móvil.", connect: "Conectar",
+          wrongPin: "PIN incorrecto o caducado. Pide uno nuevo en la TV.", locked: "Demasiados intentos. Espera 5 minutos.",
+          back: "Atrás", home: "Inicio", menu: "Menú", mute: "Silencio", send: "Enviar", enter: "Enter", typeHere: "Escribe aquí y pulsa Enviar",
+          apps: "Abrir una app", filter: "Buscar app", forget: "Olvidar este móvil", offline: "Sin conexión con la TV.",
+          adb: "La TV no acepta la orden: revisa que la depuración USB siga activada.", notyped: "Ese texto no se puede escribir (solo letras, números y símbolos sin acentos).",
+          loading: "Cargando apps…" },
+    en: { title: "Remote", pair: "Enter the PIN the TV shows in Free My TV, Remote Buttons, Phone remote.", connect: "Connect",
+          wrongPin: "Wrong or expired PIN. Ask the TV for a new one.", locked: "Too many tries. Wait 5 minutes.",
+          back: "Back", home: "Home", menu: "Menu", mute: "Mute", send: "Send", enter: "Enter", typeHere: "Type here and press Send",
+          apps: "Open an app", filter: "Search apps", forget: "Forget this phone", offline: "No connection to the TV.",
+          adb: "The TV refused the command: check that USB debugging is still on.", notyped: "That text can't be typed (letters, numbers and plain symbols only).",
+          loading: "Loading apps…" },
+    pt: { title: "Controle", pair: "Digite o PIN que a TV mostra em Free My TV, Botões do Controle, Controle pelo celular.", connect: "Conectar",
+          wrongPin: "PIN errado ou expirado. Peça um novo na TV.", locked: "Tentativas demais. Espere 5 minutos.",
+          back: "Voltar", home: "Início", menu: "Menu", mute: "Mudo", send: "Enviar", enter: "Enter", typeHere: "Digite aqui e toque em Enviar",
+          apps: "Abrir um app", filter: "Buscar app", forget: "Esquecer este celular", offline: "Sem conexão com a TV.",
+          adb: "A TV recusou o comando: confira se a depuração USB continua ligada.", notyped: "Esse texto não pode ser digitado (só letras, números e símbolos simples).",
+          loading: "Carregando apps…" }
+  };
+  var lang = (navigator.language || "es").slice(0, 2);
+  var L = T[lang] || T.es;
+  document.documentElement.lang = T[lang] ? lang : "es";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var token = null;
+  try { token = localStorage.getItem("fmtv-token"); } catch (e) {}
+
+  $("title").textContent = L.title;
+  $("pairText").textContent = L.pair;
+  $("pairBtn").textContent = L.connect;
+  $("kBack").textContent = L.back; $("kHome").textContent = L.home; $("kMenu").textContent = L.menu; $("kMute").textContent = L.mute;
+  $("sendText").textContent = L.send; $("kEnter").textContent = L.enter; $("text").placeholder = L.typeHere;
+  $("appsBtn").textContent = L.apps; $("appsFilter").placeholder = L.filter; $("forget").textContent = L.forget;
+
+  function show(paired) {
+    $("pairing").hidden = paired;
+    $("remote").hidden = !paired;
+    $("dot").className = "dot" + (paired ? " on" : "");
+  }
+
+  function api(method, path, body) {
+    var headers = { "X-Remote": "1" };
+    if (token) headers["X-Token"] = token;
+    if (body) headers["Content-Type"] = "application/json";
+    return fetch(path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store" })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, body: j }; });
+      });
+  }
+
+  function problem(res) {
+    if (res.status === 401) { token = null; try { localStorage.removeItem("fmtv-token"); } catch (e) {} show(false); return; }
+    if (res.status === 503) { $("status").textContent = L.adb; return; }
+    if (res.status >= 400) { $("status").textContent = L.offline; }
+  }
+
+  function offline() { $("status").textContent = L.offline; $("dot").className = "dot off"; }
+
+  var busy = false;
+  function key(name) {
+    if (navigator.vibrate) navigator.vibrate(8);
+    $("status").textContent = "";
+    return api("POST", "/api/key", { key: name }).then(function (res) {
+      $("dot").className = "dot on";
+      if (res.status !== 200) problem(res);
+    }, offline);
+  }
+
+  // Hold an arrow, volume or delete button to repeat it.
+  var timer = null, delay = null;
+  function stopRepeat() { clearTimeout(delay); clearInterval(timer); timer = delay = null; }
+  document.querySelectorAll("button[data-key]").forEach(function (b) {
+    var name = b.getAttribute("data-key");
+    if (!b.hasAttribute("data-repeat")) { b.addEventListener("click", function () { key(name); }); return; }
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      b.classList.add("down");
+      key(name);
+      delay = setTimeout(function () { timer = setInterval(function () { key(name); }, 220); }, 420);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(function (ev) {
+      b.addEventListener(ev, function () { b.classList.remove("down"); stopRepeat(); });
+    });
+    b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  });
+
+  $("pairBtn").addEventListener("click", function () {
+    $("pairErr").textContent = "";
+    api("POST", "/api/pair", { pin: $("pin").value.replace(/\D/g, "") }).then(function (res) {
+      if (res.status === 200 && res.body.token) {
+        token = res.body.token;
+        try { localStorage.setItem("fmtv-token", token); } catch (e) {}
+        $("pin").value = "";
+        show(true);
+      } else {
+        $("pairErr").textContent = res.status === 429 ? L.locked : L.wrongPin;
+      }
+    }, function () { $("pairErr").textContent = L.offline; });
+  });
+  $("pin").addEventListener("keydown", function (e) { if (e.key === "Enter") $("pairBtn").click(); });
+
+  function sendText() {
+    var v = $("text").value;
+    if (!v) return;
+    $("textErr").textContent = "";
+    api("POST", "/api/text", { text: v }).then(function (res) {
+      if (res.status === 200) { $("text").value = ""; }
+      else if (res.status === 400) { $("textErr").textContent = L.notyped; }
+      else problem(res);
+    }, offline);
+  }
+  $("sendText").addEventListener("click", sendText);
+  $("text").addEventListener("keydown", function (e) { if (e.key === "Enter") sendText(); });
+
+  var allApps = null;
+  function drawApps() {
+    var q = $("appsFilter").value.trim().toLowerCase();
+    var box = $("apps");
+    box.textContent = "";
+    (allApps || []).filter(function (a) { return !q || a.label.toLowerCase().indexOf(q) >= 0; }).forEach(function (a) {
+      var b = document.createElement("button");
+      b.textContent = a.label;
+      b.addEventListener("click", function () {
+        api("POST", "/api/launch", { pkg: a.pkg }).then(function (res) { if (res.status !== 200) problem(res); }, offline);
+      });
+      box.appendChild(b);
+    });
+  }
+  $("appsBtn").addEventListener("click", function () {
+    var box = $("appsBox");
+    box.hidden = !box.hidden;
+    if (!box.hidden && !allApps) {
+      $("status").textContent = L.loading;
+      api("GET", "/api/apps").then(function (res) {
+        $("status").textContent = "";
+        if (res.status === 200) { allApps = res.body.apps || []; drawApps(); } else problem(res);
+      }, offline);
+    }
+  });
+  $("appsFilter").addEventListener("input", drawApps);
+
+  $("forget").addEventListener("click", function (e) {
+    e.preventDefault();
+    api("POST", "/api/unpair", {}).then(function () {
+      token = null;
+      try { localStorage.removeItem("fmtv-token"); } catch (x) {}
+      show(false);
+    }, offline);
+  });
+
+  show(!!token);
+  if (token) api("GET", "/api/ping").then(function (res) { if (res.status !== 200) problem(res); }, offline);
+})();
+</script>
+</body>
+</html>

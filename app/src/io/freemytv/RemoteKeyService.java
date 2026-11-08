@@ -25,6 +25,15 @@ public class RemoteKeyService extends AccessibilityService {
         }
     }
 
+    /** The phone remote lives in this process, which the system keeps running while the service is bound. */
+    @Override protected void onServiceConnected() {
+        try {
+            PhoneRemote.startIfEnabled(this);
+        } catch (Throwable t) {
+            Log.w("FreeMyTV", "phone remote: " + t);
+        }
+    }
+
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
 
     @Override public void onInterrupt() {}
@@ -32,6 +41,7 @@ public class RemoteKeyService extends AccessibilityService {
     @Override public boolean onUnbind(Intent intent) {
         if (volume != null) volume.release();
         volume = null;
+        PhoneRemote.stop();
         return super.onUnbind(intent);
     }
 }
