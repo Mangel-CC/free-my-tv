@@ -72,7 +72,7 @@ final class RemoteKeys {
             return false;
         }
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
-            if (code == H_NETFLIX) openApp(c, "Nuvio Chapters");
+            if (code == H_NETFLIX) openApp(c, "Nuvio Chapters", "Nuvio");
             else if (code == H_DISNEY) openApp(c, "Nuvio");
             else if (code == H_TUBI) openApp(c, "Spotify");
             else if (code == H_YOUTUBE) openApp(c, "SmartTube");
@@ -81,24 +81,30 @@ final class RemoteKeys {
         return true;   // down and up are ours, so the TV's own action never runs
     }
 
-    /** Opens the installed app with this name: the exact name first, then one that contains it ("Nuvio" vs "Nuvio Chapters"). */
-    private static void openApp(Context c, String name) {
+    /**
+     * Opens the first installed app that has one of these names: for each name, the exact one first, then one that
+     * contains it. A later name is the fallback ("Nuvio" when "Nuvio Chapters" isn't installed).
+     */
+    private static void openApp(Context c, String... names) {
         PackageManager pm = c.getPackageManager();
-        String want = name.toLowerCase(Locale.ROOT);
-        for (boolean exact : new boolean[] {true, false}) {
-            for (String category : new String[] {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
-                List<ResolveInfo> apps = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category), 0);
-                for (ResolveInfo ri : apps) {
-                    String label = ri.loadLabel(pm).toString().trim().toLowerCase(Locale.ROOT);
-                    if (exact ? !label.equals(want) : !label.contains(want)) continue;
-                    AppLog.w("remote key -> " + ri.activityInfo.packageName);
-                    c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(category)
-                            .setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                    return;
+        for (String name : names) {
+            String want = name.toLowerCase(Locale.ROOT);
+            for (boolean exact : new boolean[] {true, false}) {
+                for (String category : new String[] {Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+                    List<ResolveInfo> apps = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category), 0);
+                    for (ResolveInfo ri : apps) {
+                        String label = ri.loadLabel(pm).toString().trim().toLowerCase(Locale.ROOT);
+                        if (exact ? !label.equals(want) : !label.contains(want)) continue;
+                        AppLog.w("remote key -> " + ri.activityInfo.packageName);
+                        c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(category)
+                                .setComponent(new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                        return;
+                    }
                 }
             }
         }
+        String name = names[0];
         AppLog.w("remote key: app not found: " + name);
         Toast.makeText(c, Ui.tr(name + ": app não encontrado", name + ": app not found", name + ": app no encontrada"),
                 Toast.LENGTH_LONG).show();

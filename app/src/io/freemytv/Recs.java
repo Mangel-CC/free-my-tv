@@ -68,7 +68,7 @@ final class Recs {
      * the picks are then TMDB's trending and recent titles in the region, whatever service has them.
      */
     private static final String CATCH_ALL_APP = "Nuvio Chapters";
-    /** What the cards say (the app that opens them is a copy of Nuvio kept next to the original). */
+    /** What the cards say; also the app that opens them when "Nuvio Chapters" isn't installed (plain Nuvio takes the same links). */
     private static final String CATCH_ALL_LABEL = "Nuvio";
 
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
@@ -920,7 +920,8 @@ final class Recs {
     }
 
     private String catchAllPackage() {
-        return HomeApps.packageByLabel(context.getPackageManager(), CATCH_ALL_APP);
+        String pkg = HomeApps.packageByLabel(context.getPackageManager(), CATCH_ALL_APP);
+        return pkg != null ? pkg : HomeApps.packageByLabel(context.getPackageManager(), CATCH_ALL_LABEL);
     }
 
     private boolean installed(String pkg) {
