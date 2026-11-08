@@ -247,6 +247,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final Paint tileFill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clip = new Path();
     private final RectF tmp = new RectF(), cell = new RectF(), screen = new RectF();
+    private final RectF tabBar = new RectF(), dockBar = new RectF();   // the liquid glass behind the tabs and the apps
 
     /** What the hero shows: a recommendation or, without any, the date, the time and the weather. */
     private static final class Hero {
@@ -1148,6 +1149,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawTiles(Canvas c) {
+        // A liquid glass dock behind the round icons and their names (it leaves room for the focused one to grow).
+        if (ROUND_ICONS && !shelf.isEmpty()) {
+            float l = Float.MAX_VALUE, t = Float.MAX_VALUE, r = -Float.MAX_VALUE, b = -Float.MAX_VALUE;
+            for (int i = 0; i < shelf.size(); i++) {
+                RectF x = tileRects[i];
+                l = Math.min(l, x.left);
+                t = Math.min(t, x.top);
+                r = Math.max(r, x.right);
+                b = Math.max(b, x.bottom);
+            }
+            dockBar.set(l - 34 * k, t - 24 * k, r + 34 * k, b + 60 * k);
+            scene.liquid(c, dockBar, 44 * k, tone(0xFFFFFFFF, SMOKE), tone(0.3f, 0.35f), tone(0.02f, 0.01f),
+                    16 * k, 14 * k, tone(0.55f, 0.45f), 1);
+        }
         // The focused one last: it grows over its neighbors without being covered by them.
         int top = -1;
         float most = 0.02f;
@@ -2227,7 +2242,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawLightTop(Canvas c) {
         applyTone();
-        // Pill tabs (Google TV): the selected one is a white pill (it grows and gets a shadow with the focus).
+        // Pill tabs (Google TV) on a liquid glass bar: the selected one is a white pill (it grows and gets a shadow with the focus).
+        RectF first = topRects[0], last = topRects[TAB_COUNT - 1];
+        if (!first.isEmpty()) {
+            float pad = 8 * k;
+            tabBar.set(first.left - pad, Math.min(first.top, last.top) - pad, last.right + pad, Math.max(first.bottom, last.bottom) + pad);
+            scene.liquid(c, tabBar, tabBar.height() / 2, tone(0xFFFFFFFF, SMOKE), tone(0.3f, 0.35f), tone(0.02f, 0.01f),
+                    12 * k, 10 * k, tone(0.55f, 0.45f), 1);
+        }
         float focus = Ui.clamp(topFocus[tab].value);
         for (int i = 0; i < TAB_COUNT; i++) {
             RectF r = topRects[i];

@@ -45,6 +45,18 @@ final class Scene {
     private boolean auroraDirty = true, imageFrost, imageGlass;
     private Bitmap frostImage, glassA, glassB;
     private BitmapShader glassShaderA;
+    // Liquid Glass without AGSL (Android 11/12): the slightly blurred photo behind (glassA/B) seen through the glass,
+    // magnified a little like a lens and more at the rim, where the edge bends the light; then a tint and a lit rim.
+    // Bitmap shaders only (the GPU samples the photo): nothing per pixel on the CPU, nothing allocated per frame.
+    private final Paint lensPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final Paint shinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Matrix lensMatrix = new Matrix();
+    private final RectF rimInner = new RectF(), shineRect = new RectF();
+    private BitmapShader lensA, lensB;
+    private Bitmap lensOfA, lensOfB;
+    private boolean lensMixing;
+    private float offsetX, offsetY, glassMix;
+    private Shader shineUnit;
 
     Scene() {
         try {
@@ -71,6 +83,13 @@ final class Scene {
         rimUnit = new LinearGradient(0, 0, 0, 1, 0x80FFFFFF, 0x1AFFFFFF, Shader.TileMode.CLAMP);
         sheenPaint.setShader(sheenUnit);
         rimPaint.setShader(rimUnit);
+        // The lit rim of the liquid glass: bright at the top left, where the light comes from, a faint echo at the
+        // bottom right (unit square, scaled to each panel).
+        shineUnit = new LinearGradient(0, 0, 1, 1, new int[] {0xF2FFFFFF, 0x2EFFFFFF, 0x14FFFFFF, 0x73FFFFFF},
+                new float[] {0, 0.42f, 0.7f, 1}, Shader.TileMode.CLAMP);
+        shinePaint.setStyle(Paint.Style.STROKE);
+        shinePaint.setStrokeWidth(2);
+        shinePaint.setShader(shineUnit);
     }
 
     void setSize(int width, int height) {
@@ -79,6 +98,7 @@ final class Scene {
         lw = Math.max(1, Math.round(w / 4f));
         lh = Math.max(1, Math.round(h / 4f));
         auroraNode.setPosition(0, 0, lw, lh);
+        shinePaint.setStrokeWidth(Math.max(1.5f, w / 1920f * 2.2f));
         if (aurora != null) {
             aurora.setFloatUniform("res", w, h);
             aurora.setFloatUniform("layer", lw, lh);
@@ -141,6 +161,17 @@ final class Scene {
         imageGlass = true;
         glassA = fill(glassA, from);
         if (to != null) glassB = fill(glassB, to);
+        // A shader per bitmap, made once: a bitmap filled again later is read with its new pixels.
+        if (lensOfA != glassA) {
+            lensOfA = glassA;
+            lensA = new BitmapShader(glassA, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        }
+        if (glassB != null && lensOfB != glassB) {
+            lensOfB = glassB;
+            lensB = new BitmapShader(glassB, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        }
+        lensMixing = to != null;
+        glassMix = 0;
         if (liquid == null) return;
         glassShaderA = linear(glassA);
         liquid.setInputShader("imageA", glassShaderA);
@@ -150,7 +181,8 @@ final class Scene {
     }
 
     void setGlassMix(float t) {
-        if (liquid != null) liquid.setFloatUniform("mixB", Math.max(0, Math.min(1, t)));
+        glassMix = Math.max(0, Math.min(1, t));
+        if (liquid != null) liquid.setFloatUniform("mixB", glassMix);
     }
 
     /** The liquid glass goes back to the frosted aurora. */
@@ -180,7 +212,8 @@ final class Scene {
                 float specular, float alpha) {
         if (alpha <= 0.004f) return;
         if (liquid == null) {
-            glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
+            if (imageGlass && lensA != null) bitmapLiquid(c, r, radius, tint, tintAlpha, band, refraction, specular, alpha);
+            else glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
             return;
         }
         liquid.setFloatUniform("center", r.centerX(), r.centerY());
@@ -194,6 +227,68 @@ final class Scene {
         liquidPaint.setAlpha(Math.round(255 * Math.min(1, alpha)));
         c.drawRect(r.left - 1, r.top - 1, r.right + 1, r.bottom + 1, liquidPaint);
         liquidPaint.setAlpha(255);
+    }
+
+    /**
+     * Liquid glass from bitmaps (Android 11/12): the photo behind magnified about the center (the lens) and more in
+     * the rim band, where the edge bends the light from further out; then a light tint, the top sheen and a lit rim.
+     */
+    private void bitmapLiquid(Canvas c, RectF r, float radius, int tint, float tintAlpha, float band, float refraction,
+                              float specular, float alpha) {
+        float half = Math.max(1, Math.min(r.width(), r.height()) / 2);
+        float rad = Math.min(radius, half);
+        int a = Math.round(255 * Math.min(1, alpha));
+        float lens = 1 + Math.min(0.06f, refraction / half * 0.3f);
+        float b = Math.min(band, half * 0.7f);
+        if (b >= 1 && refraction > 0) {
+            // The whole panel with the rim's stronger bend, then the center over it with the plain lens: the rim shows
+            // around it, with no clip.
+            drawLens(c, r, rad, lens + Math.min(0.22f, refraction / half), a);
+            rimInner.set(r.left + b, r.top + b, r.right - b, r.bottom - b);
+            drawLens(c, rimInner, Math.max(0, rad - b), lens, a, r);
+        } else {
+            drawLens(c, r, rad, lens, a);
+        }
+        flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.min(1, tintAlpha) * 0.5f * alpha));
+        c.drawRoundRect(r, rad, rad, flatFill);
+        shaderMatrix.setScale(1, r.height());
+        shaderMatrix.postTranslate(0, r.top);
+        sheenUnit.setLocalMatrix(shaderMatrix);
+        sheenPaint.setAlpha(a);
+        c.drawRoundRect(r, rad, rad, sheenPaint);
+        float inset = shinePaint.getStrokeWidth() / 2;
+        shineRect.set(r.left + inset, r.top + inset, r.right - inset, r.bottom - inset);
+        shaderMatrix.setScale(r.width(), r.height());
+        shaderMatrix.postTranslate(r.left, r.top);
+        shineUnit.setLocalMatrix(shaderMatrix);
+        shinePaint.setAlpha(Math.round(255 * Math.min(1, (0.35f + specular) * alpha)));
+        c.drawRoundRect(shineRect, Math.max(0, rad - inset), Math.max(0, rad - inset), shinePaint);
+    }
+
+    /**
+     * The photo that is behind `r` on screen (the layer may be moved by the offset), scaled by `scale` about r's
+     * center; during a photo change, the next one on top by the mix.
+     */
+    private void drawLens(Canvas c, RectF r, float rad, float scale, int alpha) {
+        drawLens(c, r, rad, scale, alpha, r);
+    }
+
+    /** Draws in `r`, with the lens centered on `around` (the whole panel, when `r` is only its center). */
+    private void drawLens(Canvas c, RectF r, float rad, float scale, int alpha, RectF around) {
+        lensMatrix.setScale((float) w / Backdrop.GW, (float) h / Backdrop.GH);
+        lensMatrix.postTranslate(-offsetX, -offsetY);
+        lensMatrix.postScale(scale, scale, around.centerX(), around.centerY());
+        lensA.setLocalMatrix(lensMatrix);
+        lensPaint.setShader(lensA);
+        lensPaint.setAlpha(alpha);
+        c.drawRoundRect(r, rad, rad, lensPaint);
+        if (lensMixing && lensB != null && glassMix > 0.004f) {
+            lensB.setLocalMatrix(lensMatrix);
+            lensPaint.setShader(lensB);
+            lensPaint.setAlpha(Math.round(alpha * glassMix));
+            c.drawRoundRect(r, rad, rad, lensPaint);
+        }
+        lensPaint.setShader(null);
     }
 
     /** The glass now reads the blurred background image (Backdrop.FW × FH, ARGB). */
@@ -223,6 +318,8 @@ final class Scene {
 
     /** Offset (px) of the layer that will draw glass, if it was moved on screen without being redrawn. */
     void setOffset(float x, float y) {
+        offsetX = x;
+        offsetY = y;
         if (glass != null) glass.setFloatUniform("offset", x, y);
         if (liquid != null) liquid.setFloatUniform("offset", x, y);
     }
